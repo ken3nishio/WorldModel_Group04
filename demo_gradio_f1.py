@@ -85,7 +85,7 @@ transformer.requires_grad_(False)
 if not high_vram:
     # DynamicSwapInstaller is same as huggingface's enable_sequential_offload but 3x faster
     DynamicSwapInstaller.install_model(transformer, device=gpu)
-    DynamicSwapInstaller.install_model(text_encoder, device=gpu)
+    # DynamicSwapInstaller.install_model(text_encoder, device=gpu)
 else:
     text_encoder.to(gpu)
     text_encoder_2.to(gpu)
@@ -120,8 +120,9 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
         stream.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'Text encoding ...'))))
 
         if not high_vram:
-            fake_diffusers_current_device(text_encoder, gpu)  # since we only encode one text - that is one model move and one encode, offload is same time consumption since it is also one load and one encode.
-            load_model_as_complete(text_encoder_2, target_device=gpu)
+            # ここが重要：text_encoder（Llama）を丸ごとGPUへ移動
+            load_model_as_complete(text_encoder, target_device=gpu)
+            load_model_as_complete(text_encoder_2, target_device=gpu, unload=False) # unload=Falseで両方乗せる
 
         llama_vec, clip_l_pooler = encode_prompt_conds(prompt, text_encoder, text_encoder_2, tokenizer, tokenizer_2)
 

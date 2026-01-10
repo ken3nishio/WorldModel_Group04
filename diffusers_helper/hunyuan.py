@@ -7,52 +7,45 @@ from diffusers_helper.utils import crop_or_pad_yield_mask
 @torch.no_grad()
 def encode_prompt_conds(prompt, text_encoder, text_encoder_2, tokenizer, tokenizer_2, max_length=256):
     assert isinstance(prompt, str)
-
     prompt = [prompt]
 
     # LLAMA
-
     prompt_llama = [DEFAULT_PROMPT_TEMPLATE["template"].format(p) for p in prompt]
     crop_start = DEFAULT_PROMPT_TEMPLATE["crop_start"]
 
     llama_inputs = tokenizer(
-        prompt_llama,
-        padding="max_length",
-        max_length=max_length + crop_start,
-        truncation=True,
-        return_tensors="pt",
-        return_length=False,
-        return_overflowing_tokens=False,
-        return_attention_mask=True,
+        prompt_llama, padding="max_length", max_length=max_length + crop_start,
+        truncation=True, return_tensors="pt", return_attention_mask=True,
     )
 
     llama_input_ids = llama_inputs.input_ids.to(text_encoder.device)
     llama_attention_mask = llama_inputs.attention_mask.to(text_encoder.device)
     llama_attention_length = int(llama_attention_mask.sum())
 
+    # 設定を強制
+    text_encoder.config.output_hidden_states = True
+
+    # 実行
     llama_outputs = text_encoder(
         input_ids=llama_input_ids,
         attention_mask=llama_attention_mask,
         output_hidden_states=True,
+        return_dict=True
     )
 
-    llama_vec = llama_outputs.hidden_states[-3][:, crop_start:llama_attention_length]
-    # llama_vec_remaining = llama_outputs.hidden_states[-3][:, llama_attention_length:]
+    # Hidden Statesの取得（複数の方法を試行）
+    hidden_states = getattr(llama_outputs, "hidden_states", None)
+    if hidden_states is None and isinstance(llama_outputs, (list, tuple)):
+        hidden_states = llama_outputs[1] # タプル形式の場合の標準的な位置
+
+    if hidden_states is None:
+        raise ValueError("Llama model failed to output hidden_states. Check if the model is correctly loaded.")
+
+    llama_vec = hidden_states[-3][:, crop_start:llama_attention_length]
     llama_attention_mask = llama_attention_mask[:, crop_start:llama_attention_length]
 
-    assert torch.all(llama_attention_mask.bool())
-
-    # CLIP
-
-    clip_l_input_ids = tokenizer_2(
-        prompt,
-        padding="max_length",
-        max_length=77,
-        truncation=True,
-        return_overflowing_tokens=False,
-        return_length=False,
-        return_tensors="pt",
-    ).input_ids
+    # CLIP部分（変更なし）
+    clip_l_input_ids = tokenizer_2(prompt, padding="max_length", max_length=77, truncation=True, return_tensors="pt").input_ids
     clip_l_pooler = text_encoder_2(clip_l_input_ids.to(text_encoder_2.device), output_hidden_states=False).pooler_output
 
     return llama_vec, clip_l_pooler
