@@ -51,6 +51,9 @@ def sample_hunyuan(
         device=None,
         negative_kwargs=None,
         callback=None,
+        # Step-Adaptive CFG パラメータ
+        adaptive_cfg_beta=0.0,  # 0.0で無効（既存動作を維持）、0.5-0.8で有効
+        adaptive_cfg_min=1.0,   # 初期段階の最小CFG
         **kwargs,
 ):
     device = device or transformer.device
@@ -96,6 +99,12 @@ def sample_hunyuan(
         cfg_scale=real_guidance_scale,
         cfg_rescale=guidance_rescale,
         concat_latent=concat_latent,
+        # Step-Adaptive CFG 設定
+        adaptive_cfg=dict(
+            enabled=adaptive_cfg_beta > 0.0,
+            beta=adaptive_cfg_beta,
+            cfg_min=adaptive_cfg_min,
+        ),
         positive=dict(
             pooled_projections=prompt_poolers,
             encoder_hidden_states=prompt_embeds,

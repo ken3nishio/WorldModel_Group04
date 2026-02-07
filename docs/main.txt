@@ -1,0 +1,5 @@
+今回はFramepack自体の改善を実施をしている。
+改善案はdocs/framepack_problem.txtに格納されている。
+リサーチギャップはdocs/research_gap.txtに格納されている。
+先行研究を、docs/related_work.txtに格納されている。
+現状考えている解決策は、docs/framepack_research_proposal.txtに格納されている。

@@ -16,15 +16,53 @@ def rescale_noise_cfg(noise_cfg, noise_pred_text, guidance_rescale=1.0):
     return noise_cfg
 
 
+def adaptive_cfg_scale(sigma, cfg_base, cfg_min=1.0, beta=0.7, t_scale=1000.0):
+    """
+    デノイジングタイムステップに応じてCFGスケールを適応的に変化させる。
+    
+    ALG (Adaptive Low-Pass Guidance) の知見に基づき、初期段階ではCFGを弱くして
+    大きな構造変化（消失、大動作）を許容し、終盤でCFGを強くしてディテールを維持する。
+    
+    Args:
+        sigma: 現在のノイズレベル (0〜1、高いほど初期段階)
+        cfg_base: 基本CFGスケール
+        cfg_min: 最小CFGスケール（初期段階の下限）
+        beta: 減衰率 (0=常にcfg_base, 1=初期は完全にcfg_min)
+        t_scale: タイムスケール（互換性のため保持）
+    Returns:
+        調整されたCFGスケール
+    
+    数式: cfg(σ) = cfg_min + (cfg_base - cfg_min) * (1 - β * σ)
+    """
+    # sigmaが高い = 初期段階 = CFGを弱くする
+    sigma_clamped = torch.clamp(sigma, 0.0, 1.0)
+    cfg_adjusted = cfg_min + (cfg_base - cfg_min) * (1.0 - beta * sigma_clamped)
+    return cfg_adjusted
+
+
 def fm_wrapper(transformer, t_scale=1000.0):
     def k_model(x, sigma, **extra_args):
         dtype = extra_args['dtype']
-        cfg_scale = extra_args['cfg_scale']
+        cfg_scale_base = extra_args['cfg_scale']
         cfg_rescale = extra_args['cfg_rescale']
         concat_latent = extra_args['concat_latent']
+        
+        # Step-Adaptive CFG の設定を取得
+        adaptive_cfg_config = extra_args.get('adaptive_cfg', None)
 
         original_dtype = x.dtype
         sigma = sigma.float()
+        
+        # 適応型CFGスケールの計算
+        if adaptive_cfg_config is not None and adaptive_cfg_config.get('enabled', False):
+            cfg_scale = adaptive_cfg_scale(
+                sigma.mean(),  # バッチ内で平均を取る
+                cfg_base=cfg_scale_base,
+                cfg_min=adaptive_cfg_config.get('cfg_min', 1.0),
+                beta=adaptive_cfg_config.get('beta', 0.7),
+            )
+        else:
+            cfg_scale = cfg_scale_base
 
         x = x.to(dtype)
         timestep = (sigma * t_scale).to(dtype)
