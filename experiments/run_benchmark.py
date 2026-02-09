@@ -1,4 +1,10 @@
+import sys
 import os
+import logging
+
+# Add parent directory to path explicitly BEFORE importing diffusers_helper
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import json
 import torch
 import numpy as np
@@ -16,9 +22,7 @@ from diffusers_helper.clip_vision import hf_clip_vision_encode
 from diffusers_helper.bucket_tools import find_nearest_bucket
 import einops
 
-# Add evaluation path
-import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Evaluation import
 from evaluation.run_vbench_custom import run_evaluation
 
 class BenchmarkRunner:
@@ -28,8 +32,13 @@ class BenchmarkRunner:
         self.output_dir = os.path.join(self.output_base_dir, self.timestamp)
         os.makedirs(self.output_dir, exist_ok=True)
         
+        # Setup Logger
+        self.setup_logger()
+        
+        self.logger.info(f"Evaluation session started. Output directory: {self.output_dir}")
+        self.logger.info("Loading models...")
+        
         # Load Models
-        print("Loading models...")
         self.text_encoder = LlamaModel.from_pretrained("hunyuanvideo-community/HunyuanVideo", subfolder='text_encoder', torch_dtype=torch.float16).cpu()
         self.text_encoder_2 = CLIPTextModel.from_pretrained("hunyuanvideo-community/HunyuanVideo", subfolder='text_encoder_2', torch_dtype=torch.float16).cpu()
         self.tokenizer = LlamaTokenizerFast.from_pretrained("hunyuanvideo-community/HunyuanVideo", subfolder='tokenizer')
@@ -81,11 +90,34 @@ class BenchmarkRunner:
              self.vae.to(gpu)
              self.transformer.to(gpu)
              
-        print("Models loaded successfully.")
+        self.logger.info("Models loaded successfully.")
+
+    def setup_logger(self):
+        log_file = os.path.join(self.output_dir, "benchmark.log")
+        
+        # Create a custom logger
+        self.logger = logging.getLogger("BenchmarkRunner")
+        self.logger.setLevel(logging.INFO)
+        
+        # Handlers
+        file_handler = logging.FileHandler(log_file)
+        stream_handler = logging.StreamHandler(sys.stdout)
+        
+        # Format
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        file_handler.setFormatter(formatter)
+        stream_handler.setFormatter(formatter)
+        
+        self.logger.addHandler(file_handler)
+        self.logger.addHandler(stream_handler)
+        
+        # Suppress noisy logs from libraries
+        logging.getLogger("transformers").setLevel(logging.ERROR)
+        logging.getLogger("diffusers").setLevel(logging.ERROR)
 
     @torch.no_grad()
     def generate(self, prompt, input_image, seed, adaptive_cfg_beta, steps=25, cfg=1.0, gs=10.0, rs=0.0):
-        print(f"Generating for prompt: '{prompt}' with beta={adaptive_cfg_beta}, seed={seed}")
+        self.logger.info(f"Generating for prompt: '{prompt}' with beta={adaptive_cfg_beta}, seed={seed}")
         
         # Clean GPU
         if not self.high_vram:
@@ -226,7 +258,7 @@ def run_benchmark(prompts_file):
     # Check if inputs directory exists
     inputs_dir = "experiments/inputs"
     if not os.path.exists(inputs_dir):
-        print(f"Warning: Inputs directory '{inputs_dir}' does not exist.")
+        runner.logger.warning(f"Inputs directory '{inputs_dir}' does not exist.")
     
     with open(prompts_file, 'r') as f:
         prompts = json.load(f)
@@ -245,15 +277,15 @@ def run_benchmark(prompts_file):
         # Resolve Input Image Path
         input_image_path = case.get("input_image")
         if not input_image_path or not os.path.exists(input_image_path):
-            print(f"Error: Input image not found for case {case_id}: {input_image_path}")
-            print("Skipping this case.")
+            runner.logger.error(f"Input image not found for case {case_id}: {input_image_path}")
+            runner.logger.info("Skipping this case.")
             continue
             
-        print(f"Loading input image: {input_image_path}")
+        runner.logger.info(f"Loading input image: {input_image_path}")
         start_image = np.array(Image.open(input_image_path).convert("RGB"))
         
         for beta in betas:
-            print(f"\n--- Processing {case_id} (Category: {category}) with Beta={beta} ---")
+            runner.logger.info(f"\n--- Processing {case_id} (Category: {category}) with Beta={beta} ---")
             
             history_pixels = runner.generate(
                 prompt=prompt,
@@ -266,7 +298,7 @@ def run_benchmark(prompts_file):
             filepath = os.path.join(runner.output_dir, filename)
             
             save_bcthw_as_mp4(history_pixels, filepath, fps=30, crf=16)
-            print(f"Saved to {filepath}")
+            runner.logger.info(f"Saved to {filepath}")
             
             metadata_list.append({
                 "filename": filename,
@@ -282,20 +314,24 @@ def run_benchmark(prompts_file):
     metadata_path = os.path.join(runner.output_dir, "metadata.json")
     with open(metadata_path, 'w') as f:
         json.dump(metadata_list, f, indent=2)
-    print(f"Metadata saved to {metadata_path}")
+    runner.logger.info(f"Metadata saved to {metadata_path}")
     
     # Run Evaluation
     if len(metadata_list) > 0:
-        print("\n--- Starting Evaluation ---")
-        run_evaluation(
-            video_dir=runner.output_dir,
-            metadata_path=metadata_path,
-            output_dir=runner.output_dir, # Save eval results in the same folder
-            device='cuda'
-        )
-        print("\n--- Benchmark Complete ---")
+        runner.logger.info("\n--- Starting Evaluation ---")
+        try:
+            run_evaluation(
+                video_dir=runner.output_dir,
+                metadata_path=metadata_path,
+                output_dir=runner.output_dir, # Save eval results in the same folder
+                device='cuda'
+            )
+            runner.logger.info("Evaluation finished successfully.")
+        except Exception as e:
+            runner.logger.error(f"Evaluation failed: {e}")
+        runner.logger.info("\n--- Benchmark Complete ---")
     else:
-        print("\n--- No valid cases processed. Evaluation skipped. ---")
+        runner.logger.warning("\n--- No valid cases processed. Evaluation skipped. ---")
 
 if __name__ == "__main__":
     run_benchmark("experiments/benchmark_prompts.json")
