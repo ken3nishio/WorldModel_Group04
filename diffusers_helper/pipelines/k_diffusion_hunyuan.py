@@ -101,7 +101,7 @@ def sample_hunyuan(
         concat_latent=concat_latent,
         # Step-Adaptive CFG 設定
         adaptive_cfg=dict(
-            enabled=adaptive_cfg_beta > 0.0,
+            enabled=adaptive_cfg_beta != 0.0,
             beta=adaptive_cfg_beta,
             cfg_min=adaptive_cfg_min,
         ),

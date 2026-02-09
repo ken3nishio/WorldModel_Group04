@@ -344,7 +344,8 @@ with block:
                 latent_window_size = gr.Slider(label="Latent Window Size", minimum=1, maximum=33, value=9, step=1, visible=False)  # Should not change
                 steps = gr.Slider(label="Steps", minimum=1, maximum=100, value=25, step=1, info='Changing this value is not recommended.')
 
-                cfg = gr.Slider(label="CFG Scale", minimum=1.0, maximum=32.0, value=1.0, step=0.01, visible=False)  # Should not change
+                # CFG Scale Visible & Default 6.0
+                cfg = gr.Slider(label="CFG Scale", minimum=1.0, maximum=32.0, value=6.0, step=0.1, visible=True, info="Guidance Scale. Recommended: 6.0 for standard motion, 8.0+ for strong instructions.")
                 gs = gr.Slider(label="Distilled CFG Scale", minimum=1.0, maximum=32.0, value=10.0, step=0.01, info='Changing this value is not recommended.')
                 rs = gr.Slider(label="CFG Re-Scale", minimum=0.0, maximum=1.0, value=0.0, step=0.01, visible=False)  # Should not change
 
@@ -352,7 +353,7 @@ with block:
 
                 mp4_crf = gr.Slider(label="MP4 Compression", minimum=0, maximum=100, value=16, step=1, info="Lower means better quality. 0 is uncompressed. Change to 16 if you get black outputs. ")
 
-                adaptive_cfg_beta = gr.Slider(label="Adaptive CFG Beta", minimum=0.0, maximum=1.0, value=0.0, step=0.05, info="0=disabled, 0.5-0.8=enables dynamic motion. Experimental feature for large movements/disappearance.")
+                adaptive_cfg_beta = gr.Slider(label="Adaptive CFG Beta (Pos=Decay, Neg=Boost)", minimum=-1.0, maximum=1.0, value=0.0, step=0.05, info="Positive (e.g. 0.7): Start Low CFG -> End High. Negative (e.g. -0.5): Start High CFG -> End Normal. Use Negative for 'Disappearance'.")
 
         with gr.Column():
             preview_image = gr.Image(label="Next Latents", height=200, visible=False)

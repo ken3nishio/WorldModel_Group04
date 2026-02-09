@@ -34,9 +34,23 @@ def adaptive_cfg_scale(sigma, cfg_base, cfg_min=1.0, beta=0.7, t_scale=1000.0):
     
     数式: cfg(σ) = cfg_min + (cfg_base - cfg_min) * (1 - β * σ)
     """
-    # sigmaが高い = 初期段階 = CFGを弱くする
+    # sigmaが高い = 初期段階
     sigma_clamped = torch.clamp(sigma, 0.0, 1.0)
-    cfg_adjusted = cfg_min + (cfg_base - cfg_min) * (1.0 - beta * sigma_clamped)
+    
+    if beta >= 0:
+        # Positive Beta: Start Low -> End High (Decay)
+        # 初期段階でCFGを下げる（画像/Uncondに近づける）
+        # cfg(1) = min + (base-min)*(1-beta)
+        # cfg(0) = base
+        cfg_adjusted = cfg_min + (cfg_base - cfg_min) * (1.0 - beta * sigma_clamped)
+    else:
+        # Negative Beta: Start High -> End Low (Boost)
+        # 初期段階でCFGを上げる（プロンプト/Posを強調する）
+        # cfg(1) = base + (base * abs(beta))
+        # cfg(0) = base
+        boost = abs(beta)
+        cfg_adjusted = cfg_base + (cfg_base * boost * sigma_clamped)
+        
     return cfg_adjusted
 
 
@@ -61,6 +75,9 @@ def fm_wrapper(transformer, t_scale=1000.0):
                 cfg_min=adaptive_cfg_config.get('cfg_min', 1.0),
                 beta=adaptive_cfg_config.get('beta', 0.7),
             )
+            # Debug output to verify behavior (print only for step 0 and every 5 steps)
+            # if sigma > 0.9 or (int(sigma * 100) % 20 == 0):
+            print(f"DEBUG: Sigma={sigma.mean():.4f}, Base={cfg_scale_base}, Calc_CFG={cfg_scale:.4f}")
         else:
             cfg_scale = cfg_scale_base
 
