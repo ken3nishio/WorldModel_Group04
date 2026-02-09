@@ -3,3 +3,4 @@
 リサーチギャップはdocs/research_gap.txtに格納されている。
 先行研究を、docs/related_work.txtに格納されている。
 現状考えている解決策は、docs/framepack_research_proposal.txtに格納されている。
+評価指標の選定は常にすでに存在をしているもののみ使用をしてよい。自作等をするとその妥当性の検討という過程が挟まってしまう為である。
