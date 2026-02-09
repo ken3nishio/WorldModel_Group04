@@ -1,6 +1,7 @@
 import sys
 import os
 import logging
+import gc
 
 # Add parent directory to path explicitly BEFORE importing diffusers_helper
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -57,13 +58,15 @@ class BenchmarkRunner:
         self.image_encoder.eval()
         self.transformer.eval()
         
-        # Optimization
-        self.free_mem_gb = get_cuda_free_memory_gb(gpu)
-        self.high_vram = self.free_mem_gb > 60
+        # Force strict Low VRAM mode to prevent OOM
+        self.high_vram = False
         
-        if not self.high_vram:
-            self.vae.enable_slicing()
-            self.vae.enable_tiling()
+        self.free_mem_gb = get_cuda_free_memory_gb(gpu)
+        self.logger.info(f"Free VRAM: {self.free_mem_gb}GB, Mode: Low VRAM (Strict Offloading)")
+
+        # Enable slicing/tiling for VAE
+        self.vae.enable_slicing()
+        self.vae.enable_tiling()
             
         self.transformer.high_quality_fp32_output_for_inference = True
         
@@ -80,15 +83,6 @@ class BenchmarkRunner:
         self.text_encoder_2.requires_grad_(False)
         self.image_encoder.requires_grad_(False)
         self.transformer.requires_grad_(False)
-        
-        if not self.high_vram:
-             DynamicSwapInstaller.install_model(self.transformer, device=gpu)
-        else:
-             self.text_encoder.to(gpu)
-             self.text_encoder_2.to(gpu)
-             self.image_encoder.to(gpu)
-             self.vae.to(gpu)
-             self.transformer.to(gpu)
              
         self.logger.info("Models loaded successfully.")
 
@@ -115,54 +109,69 @@ class BenchmarkRunner:
         logging.getLogger("transformers").setLevel(logging.ERROR)
         logging.getLogger("diffusers").setLevel(logging.ERROR)
 
+    def force_cleanup_memory(self):
+        """Aggressively clean up GPU memory"""
+        # Move all models to CPU
+        self.text_encoder.to(cpu)
+        self.text_encoder_2.to(cpu)
+        self.image_encoder.to(cpu)
+        self.vae.to(cpu)
+        self.transformer.to(cpu)
+        
+        torch.cuda.empty_cache()
+        gc.collect()
+
     @torch.no_grad()
     def generate(self, prompt, input_image, seed, adaptive_cfg_beta, steps=25, cfg=1.0, gs=10.0, rs=0.0):
         self.logger.info(f"Generating for prompt: '{prompt}' with beta={adaptive_cfg_beta}, seed={seed}")
         
-        # Clean GPU
-        if not self.high_vram:
-            unload_complete_models(self.text_encoder, self.text_encoder_2, self.image_encoder, self.vae, self.transformer)
+        # 1. Clean Start
+        self.force_cleanup_memory()
 
-        # Text encoding
-        if not self.high_vram:
-            load_model_as_complete(self.text_encoder, target_device=gpu)
-            load_model_as_complete(self.text_encoder_2, target_device=gpu, unload=False)
-
+        # 2. Text Encoding
+        print("Running Text Encoder...")
+        self.text_encoder.to(gpu)
+        self.text_encoder_2.to(gpu)
         llama_vec, clip_l_pooler = encode_prompt_conds(prompt, self.text_encoder, self.text_encoder_2, self.tokenizer, self.tokenizer_2)
         
-        # cfg=1.0 usually implies no negative prompt needed for CFG calculation in standard pipelines, 
-        # but Hunyuan logic often computes empty uncond embedding
         if cfg == 1:
              llama_vec_n, clip_l_pooler_n = torch.zeros_like(llama_vec), torch.zeros_like(clip_l_pooler)
         else:
-             # Empty negative prompt
              llama_vec_n, clip_l_pooler_n = encode_prompt_conds("", self.text_encoder, self.text_encoder_2, self.tokenizer, self.tokenizer_2)
 
         llama_vec, llama_attention_mask = crop_or_pad_yield_mask(llama_vec, length=512)
         llama_vec_n, llama_attention_mask_n = crop_or_pad_yield_mask(llama_vec_n, length=512)
+        
+        # Cleanup Text Encoder
+        self.text_encoder.to(cpu)
+        self.text_encoder_2.to(cpu)
+        torch.cuda.empty_cache()
 
-        # Image encoding
+        # 3. Image Preprocessing (CPU)
         H, W, C = input_image.shape
         height, width = find_nearest_bucket(H, W, resolution=640)
         input_image_np = resize_and_center_crop(input_image, target_width=width, target_height=height)
-        
         input_image_pt = torch.from_numpy(input_image_np).float() / 127.5 - 1
         input_image_pt = input_image_pt.permute(2, 0, 1)[None, :, None]
-
-        # VAE Encode
-        if not self.high_vram:
-            load_model_as_complete(self.vae, target_device=gpu)
-            
+        
+        # 4. VAE Encode
+        print("Running VAE Encode...")
+        self.vae.to(gpu)
         start_latent = vae_encode(input_image_pt, self.vae)
+        # Cleanup VAE
+        self.vae.to(cpu)
+        torch.cuda.empty_cache()
 
-        # CLIP Vision
-        if not self.high_vram:
-            load_model_as_complete(self.image_encoder, target_device=gpu)
-            
+        # 5. Vision Encoding
+        print("Running Vision Encoder...")
+        self.image_encoder.to(gpu)
         image_encoder_output = hf_clip_vision_encode(input_image_np, self.feature_extractor, self.image_encoder)
         image_encoder_last_hidden_state = image_encoder_output.last_hidden_state
+        # Cleanup Vision Encoder
+        self.image_encoder.to(cpu)
+        torch.cuda.empty_cache()
 
-        # Cast
+        # Cast to correct type
         llama_vec = llama_vec.to(self.transformer.dtype)
         llama_vec_n = llama_vec_n.to(self.transformer.dtype)
         clip_l_pooler = clip_l_pooler.to(self.transformer.dtype)
@@ -171,23 +180,20 @@ class BenchmarkRunner:
 
         # Generating Loop Setup
         rnd = torch.Generator("cpu").manual_seed(seed)
-        
-        # Simple configuration for benchmark: fixed latent window size 9, total 2 sections (approx 2-3 sec)
         latent_window_size = 9
-        total_latent_sections = 1 # Keep it short for benchmark (approx 1.2s) - change to 2 for longer
+        total_latent_sections = 1 
         
         history_latents = torch.zeros(size=(1, 16, 16 + 2 + 1, height // 8, width // 8), dtype=torch.float32).cpu()
         history_latents = torch.cat([history_latents, start_latent.to(history_latents)], dim=2)
         history_pixels = None
-        
         total_generated_latent_frames = 1
 
         for section_index in range(total_latent_sections):
-            if not self.high_vram:
-                unload_complete_models()
-                move_model_to_device_with_memory_preservation(self.transformer, target_device=gpu, preserved_memory_gb=6.0)
-                
-            # Teacache disabled for benchmark accuracy
+            print(f"Running Transformer (Section {section_index+1})...")
+            
+            # Load Transformer ONLY here
+            self.transformer.to(gpu)
+            
             self.transformer.initialize_teacache(enable_teacache=False)
             
             indices = torch.arange(0, sum([1, 16, 2, 1, latent_window_size])).unsqueeze(0)
@@ -224,7 +230,6 @@ class BenchmarkRunner:
                 clean_latent_2x_indices=clean_latent_2x_indices,
                 clean_latents_4x=clean_latents_4x,
                 clean_latent_4x_indices=clean_latent_4x_indices,
-                # Step-Adaptive CFG
                 adaptive_cfg_beta=adaptive_cfg_beta,
                 adaptive_cfg_min=1.0,
             )
@@ -232,23 +237,28 @@ class BenchmarkRunner:
             total_generated_latent_frames += int(generated_latents.shape[2])
             history_latents = torch.cat([history_latents, generated_latents.to(history_latents)], dim=2)
             
-            if not self.high_vram:
-                offload_model_from_device_for_memory_preservation(self.transformer, target_device=gpu, preserved_memory_gb=8)
-                load_model_as_complete(self.vae, target_device=gpu)
+            # Cleanup Transformer IMMEDIATELY
+            self.transformer.to(cpu)
+            torch.cuda.empty_cache()
 
             real_history_latents = history_latents[:, :, -total_generated_latent_frames:, :, :]
             
-            if history_pixels is None:
-                history_pixels = vae_decode(real_history_latents, self.vae).cpu()
-            else:
-                 # Simplified stitching logic for benchmark purposes
-                section_latent_frames = latent_window_size * 2
-                overlapped_frames = latent_window_size * 4 - 3
-                current_pixels = vae_decode(real_history_latents[:, :, -section_latent_frames:], self.vae).cpu()
-                history_pixels = soft_append_bcthw(history_pixels, current_pixels, overlapped_frames)
-
-            if not self.high_vram:
-                unload_complete_models()
+            # VAE Decode
+            print("Running VAE Decode...")
+            self.vae.to(gpu)
+            
+            try:
+                if history_pixels is None:
+                    history_pixels = vae_decode(real_history_latents, self.vae).cpu()
+                else:
+                    section_latent_frames = latent_window_size * 2
+                    overlapped_frames = latent_window_size * 4 - 3
+                    current_pixels = vae_decode(real_history_latents[:, :, -section_latent_frames:], self.vae).cpu()
+                    history_pixels = soft_append_bcthw(history_pixels, current_pixels, overlapped_frames)
+            finally:
+                # Cleanup VAE immediately after use
+                self.vae.to(cpu)
+                torch.cuda.empty_cache()
                 
         return history_pixels
 
@@ -287,28 +297,40 @@ def run_benchmark(prompts_file):
         for beta in betas:
             runner.logger.info(f"\n--- Processing {case_id} (Category: {category}) with Beta={beta} ---")
             
-            history_pixels = runner.generate(
-                prompt=prompt,
-                input_image=start_image,
-                seed=seed,
-                adaptive_cfg_beta=beta
-            )
-            
-            filename = f"{case_id}_beta{beta}_{runner.timestamp}.mp4"
-            filepath = os.path.join(runner.output_dir, filename)
-            
-            save_bcthw_as_mp4(history_pixels, filepath, fps=30, crf=16)
-            runner.logger.info(f"Saved to {filepath}")
-            
-            metadata_list.append({
-                "filename": filename,
-                "prompt": prompt,
-                "category": category,
-                "beta": beta,
-                "case_id": case_id,
-                "seed": seed,
-                "input_image": input_image_path
-            })
+            try:
+                history_pixels = runner.generate(
+                    prompt=prompt,
+                    input_image=start_image,
+                    seed=seed,
+                    adaptive_cfg_beta=beta
+                )
+                
+                filename = f"{case_id}_beta{beta}_{runner.timestamp}.mp4"
+                filepath = os.path.join(runner.output_dir, filename)
+                
+                # Check output exists and saving
+                if history_pixels is not None:
+                     save_bcthw_as_mp4(history_pixels, filepath, fps=30, crf=16)
+                     runner.logger.info(f"Saved to {filepath}")
+                     
+                     metadata_list.append({
+                        "filename": filename,
+                        "prompt": prompt,
+                        "category": category,
+                        "beta": beta,
+                        "case_id": case_id,
+                        "seed": seed,
+                        "input_image": input_image_path,
+                        "target_prompt": case.get("target_prompt", "") 
+                     })
+                else:
+                     runner.logger.error(f"Generation output was None for {case_id}")
+            except Exception as e:
+                runner.logger.error(f"Failed to generate video for {case_id} beta={beta}: {e}")
+                import traceback
+                runner.logger.error(traceback.format_exc())
+                # Try to clean up memory
+                runner.force_cleanup_memory()
             
     # Save Metadata
     metadata_path = os.path.join(runner.output_dir, "metadata.json")
@@ -329,6 +351,8 @@ def run_benchmark(prompts_file):
             runner.logger.info("Evaluation finished successfully.")
         except Exception as e:
             runner.logger.error(f"Evaluation failed: {e}")
+            import traceback
+            runner.logger.error(traceback.format_exc())
         runner.logger.info("\n--- Benchmark Complete ---")
     else:
         runner.logger.warning("\n--- No valid cases processed. Evaluation skipped. ---")
