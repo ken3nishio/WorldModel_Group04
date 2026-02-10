@@ -8,6 +8,7 @@ import einops
 import numpy as np
 import datetime
 import torchvision
+import torch.nn.functional as F
 
 import safetensors.torch as sf
 from PIL import Image
@@ -606,8 +607,65 @@ def torch_safe_save(content, path):
     return path
 
 
-def move_optimizer_to_device(optimizer, device):
+
     for state in optimizer.state.values():
         for k, v in state.items():
             if isinstance(v, torch.Tensor):
                 state[k] = v.to(device)
+
+
+def temporal_blur_latent(latent, sigma=1.0):
+    """
+    時間方向に対してガウシアンブラーを適用し、
+    過去フレームの高周波成分を抑制する
+    
+    Args:
+        latent: Tensor of shape (B, C, T, H, W)
+        sigma: ブラー強度
+    Returns:
+        blurred_latent: 同じ形状のTensor
+    """
+    B, C, T, H, W = latent.shape
+    
+    # 意味のないsigmaや長さの場合はスキップ
+    if sigma <= 0.01 or T <= 1:
+        return latent
+        
+    device = latent.device
+    dtype = latent.dtype
+    
+    # ガウシアンカーネル作成（時間方向）
+    kernel_size = int(6 * sigma + 1) | 1  # 奇数にする
+    kernel_size = min(kernel_size, T)  # 時間長を超えないように
+    
+    if kernel_size <= 1:
+        return latent
+    
+    x = torch.arange(kernel_size, device=device, dtype=dtype) - (kernel_size - 1) / 2
+    # ガウシアン分布: exp(-0.5 * (x / sigma)^2)
+    kernel = torch.exp(-0.5 * (x / sigma) ** 2)
+    kernel = kernel / kernel.sum()
+    
+    # reshape: (B, C, T, H, W) -> (B*C*H*W, 1, T)
+    # これにより、バッチ・チャネル・空間位置ごとの時系列データとして扱える
+    latent_reshaped = latent.permute(0, 1, 3, 4, 2).reshape(-1, 1, T)
+    
+    # kernel reshape: (1, 1, K) for conv1d
+    kernel = kernel.view(1, 1, -1)
+    
+    # Padding: replicate (端の値を複製)
+    padding = kernel_size // 2
+    
+    # メモリ効率のためチャンク処理の検討は可能だが、
+    # latentのサイズ次第。ここではシンプルに実装し、OOMが出たら修正する方針。
+    # shape: (N, 1, T + 2*padding)
+    latent_padded = F.pad(latent_reshaped, (padding, padding), mode='replicate')
+    
+    # Conv1d
+    blurred = F.conv1d(latent_padded, kernel)
+    
+    # 元の形状に戻す: (B*C*H*W, 1, T) -> (B, C, H, W, T) -> (B, C, T, H, W)
+    blurred = blurred.view(B, C, H, W, T).permute(0, 1, 4, 2, 3)
+    
+    return blurred
+
