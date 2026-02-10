@@ -238,7 +238,6 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
                 clean_latent_4x_indices=clean_latent_4x_indices,
                 callback=callback,
                 adaptive_cfg_beta=adaptive_cfg_beta,
-                adaptive_cfg_beta=adaptive_cfg_beta,
                 adaptive_cfg_min=1.0,
                 temporal_blur_sigma=temporal_blur_sigma,
             )
