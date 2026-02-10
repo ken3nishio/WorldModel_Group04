@@ -101,6 +101,7 @@ def sample_hunyuan(
         dtype=dtype,
         cfg_scale=real_guidance_scale,
         cfg_rescale=guidance_rescale,
+        concat_latent=concat_latent,
         # Temporal Blur処理
         # clean_latents が kwargs に含まれている場合、ここでブラーをかける
         # 注意: clean_latents は2つ存在する可能性がある (通常の clean_latents と clean_latents_2x 等)

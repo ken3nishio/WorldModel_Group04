@@ -635,8 +635,15 @@ def temporal_blur_latent(latent, sigma=1.0):
     dtype = latent.dtype
     
     # ガウシアンカーネル作成（時間方向）
-    kernel_size = int(6 * sigma + 1) | 1  # 奇数にする
-    kernel_size = min(kernel_size, T)  # 時間長を超えないように
+    
+    # 1. まず推奨サイズを計算（奇数）
+    target_k = int(6 * sigma + 1) | 1
+    
+    # 2. 時間長Tを超えない最大の奇数に調整
+    if target_k > T:
+        kernel_size = T if T % 2 == 1 else T - 1
+    else:
+        kernel_size = target_k
     
     if kernel_size <= 1:
         return latent
