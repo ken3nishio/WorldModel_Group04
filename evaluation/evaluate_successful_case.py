@@ -162,6 +162,25 @@ def evaluate_disappearance(frames, model, processor, object_prompt, empty_prompt
 # ============================================================
 # Metric 2: Frame-wise CLIP Score (Target Prompt Similarity)
 # ============================================================
+def _extract_tensor(features):
+    """
+    get_text_features / get_image_features の返り値がテンソルの場合も
+    BaseModelOutputWithPooling の場合も正しくテンソルを取り出すヘルパー。
+    """
+    if isinstance(features, torch.Tensor):
+        return features
+    # BaseModelOutputWithPooling の場合
+    if hasattr(features, 'pooler_output') and features.pooler_output is not None:
+        return features.pooler_output
+    if hasattr(features, 'last_hidden_state'):
+        # pooler_output がない場合、last_hidden_state の [CLS] トークンを使用
+        return features.last_hidden_state[:, 0, :]
+    # タプルの場合
+    if isinstance(features, tuple):
+        return features[0] if isinstance(features[0], torch.Tensor) else features[1]
+    raise TypeError(f"Unexpected type from CLIP model: {type(features)}")
+
+
 def evaluate_clip_temporal(frames, model, processor, target_prompt, device):
     """
     各フレームとターゲットプロンプトとのCLIP cosine similarityを計算。
@@ -170,15 +189,22 @@ def evaluate_clip_temporal(frames, model, processor, target_prompt, device):
     scores = []
     
     with torch.no_grad():
-        inputs_text = processor(text=[target_prompt], return_tensors="pt", padding=True).to(device)
-        text_features = model.get_text_features(**inputs_text)
+        inputs_text = processor(text=[target_prompt], return_tensors="pt", padding=True)
+        text_features_raw = model.get_text_features(
+            input_ids=inputs_text["input_ids"].to(device),
+            attention_mask=inputs_text["attention_mask"].to(device),
+        )
+        text_features = _extract_tensor(text_features_raw)
         text_features = text_features / text_features.norm(p=2, dim=-1, keepdim=True)
         
         batch_size = 8
         for i in range(0, len(frames), batch_size):
             batch_frames = frames[i:i+batch_size]
-            inputs_image = processor(images=batch_frames, return_tensors="pt").to(device)
-            image_features = model.get_image_features(**inputs_image)
+            inputs_image = processor(images=batch_frames, return_tensors="pt")
+            image_features_raw = model.get_image_features(
+                pixel_values=inputs_image["pixel_values"].to(device),
+            )
+            image_features = _extract_tensor(image_features_raw)
             image_features = image_features / image_features.norm(p=2, dim=-1, keepdim=True)
             
             similarity = (image_features @ text_features.T).squeeze(-1)

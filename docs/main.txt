@@ -1,6 +1,41 @@
-今回はFramepack自体の改善を実施をしている。
-改善案はdocs/framepack_problem.txtに格納されている。
-リサーチギャップはdocs/research_gap.txtに格納されている。
-先行研究を、docs/related_work.txtに格納されている。
-現状考えている解決策は、docs/framepack_research_proposal.txtに格納されている。
-評価指標の選定は常にすでに存在をしているもののみ使用をしてよい。自作等をするとその妥当性の検討という過程が挟まってしまう為である。
+# FramePack 改善研究 ドキュメントマップ
+# =============================================
+# 論文の章構成に沿ってドキュメントを整理
+
+## 研究概要
+  → docs/research_overview.md           ★ 研究全体の概要（論文骨子）
+
+## 論文ドラフト
+  → docs/paper/research_paper_draft.md   論文ドラフト（FAHC提案）
+
+## 1. 問題分析（Introduction / Problem Statement）
+  → docs/problem/framepack_problem.txt       FramePackの構造的課題分析
+  → docs/problem/research_gap.txt            リサーチギャップの体系的整理
+  → docs/problem/investigation_report_dynamics.md  Beta正値が失敗した原因分析
+
+## 2. 関連研究（Related Work）
+  → docs/related_work/related_work.txt       先行研究調査（ALG, MotionRAG, SVI）
+
+## 3. 提案手法（Method / Proposed Approach）
+  → docs/method/framepack_research_proposal.txt   研究テーマ提案（3テーマ）
+  → docs/method/improvement_candidates.md         改善候補一覧（数式・コード・指標）
+  → docs/method/step_adaptive_cfg_implementation.md  Step-Adaptive CFG 実装詳細
+
+## 4. 実験（Experiments）
+  → docs/experiments/experiment_plan_human_perception.md  仮説検証型の実験計画
+  → docs/experiments/ui_experiment_guide.md               Gradio UIでの実験手順
+  → experiments/results/main.txt                          成功条件の記録
+  → experiments/results/explain.txt                       パラメータ設定例
+  → experiments/benchmark_prompts.json                    ベンチマークプロンプト定義
+
+## 5. 評価（Evaluation）
+  → docs/evaluation/evaluation_selection.md               VBench選定ドキュメント
+  → docs/evaluation/evaluation_metrics.md                 評価指標の具体的な使い方
+  → docs/evaluation/evaluation_metric_selection_rationale.md  カテゴリ別評価プロトコル(Rev.2)
+  → docs/evaluation/metric_revaluation.md                 自作指標の排除方針
+  → docs/evaluation/standard_metrics_rationale.md         VBench + FVD + LPIPS 総合ロジック
+  → evaluation/README.md                                  評価スクリプト群の使い方
+
+## ルール
+  - 評価指標の選定は常にすでに存在をしているもののみ使用をしてよい。
+    自作等をするとその妥当性の検討という過程が挟まってしまう為である。
