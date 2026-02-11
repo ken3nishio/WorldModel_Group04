@@ -6,4 +6,3 @@
 !pip install -U transformers diffusers peft accelerate
 
 !python demo_gradio_f1.py --share
- 

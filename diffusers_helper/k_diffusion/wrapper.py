@@ -16,15 +16,70 @@ def rescale_noise_cfg(noise_cfg, noise_pred_text, guidance_rescale=1.0):
     return noise_cfg
 
 
+def adaptive_cfg_scale(sigma, cfg_base, cfg_min=1.0, beta=0.7, t_scale=1000.0):
+    """
+    デノイジングタイムステップに応じてCFGスケールを適応的に変化させる。
+    
+    ALG (Adaptive Low-Pass Guidance) の知見に基づき、初期段階ではCFGを弱くして
+    大きな構造変化（消失、大動作）を許容し、終盤でCFGを強くしてディテールを維持する。
+    
+    Args:
+        sigma: 現在のノイズレベル (0〜1、高いほど初期段階)
+        cfg_base: 基本CFGスケール
+        cfg_min: 最小CFGスケール（初期段階の下限）
+        beta: 減衰率 (0=常にcfg_base, 1=初期は完全にcfg_min)
+        t_scale: タイムスケール（互換性のため保持）
+    Returns:
+        調整されたCFGスケール
+    
+    数式: cfg(σ) = cfg_min + (cfg_base - cfg_min) * (1 - β * σ)
+    """
+    # sigmaが高い = 初期段階
+    sigma_clamped = torch.clamp(sigma, 0.0, 1.0)
+    
+    if beta >= 0:
+        # Positive Beta: Start Low -> End High (Decay)
+        # 初期段階でCFGを下げる（画像/Uncondに近づける）
+        # cfg(1) = min + (base-min)*(1-beta)
+        # cfg(0) = base
+        cfg_adjusted = cfg_min + (cfg_base - cfg_min) * (1.0 - beta * sigma_clamped)
+    else:
+        # Negative Beta: Start High -> End Low (Boost)
+        # 初期段階でCFGを上げる（プロンプト/Posを強調する）
+        # cfg(1) = base + (base * abs(beta))
+        # cfg(0) = base
+        boost = abs(beta)
+        cfg_adjusted = cfg_base + (cfg_base * boost * sigma_clamped)
+        
+    return cfg_adjusted
+
+
 def fm_wrapper(transformer, t_scale=1000.0):
     def k_model(x, sigma, **extra_args):
         dtype = extra_args['dtype']
-        cfg_scale = extra_args['cfg_scale']
+        cfg_scale_base = extra_args['cfg_scale']
         cfg_rescale = extra_args['cfg_rescale']
         concat_latent = extra_args['concat_latent']
+        
+        # Step-Adaptive CFG の設定を取得
+        adaptive_cfg_config = extra_args.get('adaptive_cfg', None)
 
         original_dtype = x.dtype
         sigma = sigma.float()
+        
+        # 適応型CFGスケールの計算
+        if adaptive_cfg_config is not None and adaptive_cfg_config.get('enabled', False):
+            cfg_scale = adaptive_cfg_scale(
+                sigma.mean(),  # バッチ内で平均を取る
+                cfg_base=cfg_scale_base,
+                cfg_min=adaptive_cfg_config.get('cfg_min', 1.0),
+                beta=adaptive_cfg_config.get('beta', 0.7),
+            )
+            # Debug output to verify behavior (print only for step 0 and every 5 steps)
+            # if sigma > 0.9 or (int(sigma * 100) % 20 == 0):
+            print(f"DEBUG: Sigma={sigma.mean():.4f}, Base={cfg_scale_base}, Calc_CFG={cfg_scale:.4f}")
+        else:
+            cfg_scale = cfg_scale_base
 
         x = x.to(dtype)
         timestep = (sigma * t_scale).to(dtype)

@@ -1,0 +1,10 @@
+parameter
+beta: 0.7
+output: /experiments/results/action_dance_beta_0.7_dance_performing_a_backflip (2).mp4
+input: /experiments/input/434605182-f3bc35cf-656a-4c9c-a83a-bbab24858b09.jpg
+
+
+parameter
+beta: 0
+output: /experiments/results/beta_0_dancer_performing_backflip.mp4
+input: /experiments/input/434605182-f3bc35cf-656a-4c9c-a83a-bbab24858b09.jpg

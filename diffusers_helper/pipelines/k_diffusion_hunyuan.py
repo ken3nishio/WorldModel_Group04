@@ -3,7 +3,8 @@ import math
 
 from diffusers_helper.k_diffusion.uni_pc_fm import sample_unipc
 from diffusers_helper.k_diffusion.wrapper import fm_wrapper
-from diffusers_helper.utils import repeat_to_batch_size
+from diffusers_helper.utils import repeat_to_batch_size, temporal_blur_latent
+
 
 
 def flux_time_shift(t, mu=1.15, sigma=1.0):
@@ -51,6 +52,11 @@ def sample_hunyuan(
         device=None,
         negative_kwargs=None,
         callback=None,
+        # Step-Adaptive CFG パラメータ
+        adaptive_cfg_beta=0.0,
+        adaptive_cfg_min=1.0,
+        # Temporal Blur パラメータ
+        temporal_blur_sigma=0.0,  # 0.0で無効。0.5~2.0程度を推奨
         **kwargs,
 ):
     device = device or transformer.device
@@ -96,19 +102,34 @@ def sample_hunyuan(
         cfg_scale=real_guidance_scale,
         cfg_rescale=guidance_rescale,
         concat_latent=concat_latent,
+        # Temporal Blur処理
+        # clean_latents が kwargs に含まれている場合、ここでブラーをかける
+        # 注意: clean_latents は2つ存在する可能性がある (通常の clean_latents と clean_latents_2x 等)
+        # Hunyuan Packedの実装依存だが、通常は 'clean_latents' キーで渡される
+
+        # Step-Adaptive CFG 設定
+        adaptive_cfg=dict(
+            enabled=adaptive_cfg_beta != 0.0,
+            beta=adaptive_cfg_beta,
+            cfg_min=adaptive_cfg_min,
+        ),
         positive=dict(
             pooled_projections=prompt_poolers,
             encoder_hidden_states=prompt_embeds,
             encoder_attention_mask=prompt_embeds_mask,
             guidance=distilled_guidance,
-            **kwargs,
+            **{k: temporal_blur_latent(v, temporal_blur_sigma) if 'clean_latents' in k else v for k, v in kwargs.items()},
         ),
         negative=dict(
             pooled_projections=negative_prompt_poolers,
             encoder_hidden_states=negative_prompt_embeds,
             encoder_attention_mask=negative_prompt_embeds_mask,
             guidance=distilled_guidance,
-            **(kwargs if negative_kwargs is None else {**kwargs, **negative_kwargs}),
+            **(
+                {k: temporal_blur_latent(v, temporal_blur_sigma) if 'clean_latents' in k else v for k, v in kwargs.items()}
+                if negative_kwargs is None
+                else {**{k: temporal_blur_latent(v, temporal_blur_sigma) if 'clean_latents' in k else v for k, v in kwargs.items()}, **negative_kwargs}
+            ),
         )
     )
 
