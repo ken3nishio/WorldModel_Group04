@@ -5,11 +5,12 @@ import subprocess
 from datetime import datetime
 
 # プロジェクトルート
-PROJECT_ROOT = "/WorldModel_Group04"
+PROJECT_ROOT = ""
 GENERATE_SCRIPT = os.path.join(PROJECT_ROOT, "evaluation/generate_and_evaluate.py")
 
 def main():
     parser = argparse.ArgumentParser(description="単一動画の生成・評価実験を実行し、整理されたフォルダに出力します。")
+    parser.add_argument("")
     parser.add_argument("--image", required=True, help="入力画像の絶対パス")
     parser.add_argument("--beta", type=float, default=0.0, help="Adaptive CFG Beta (Default: 0.0)")
     parser.add_argument("--blur", type=float, default=0.0, help="Temporal Blur Sigma (Default: 0.0)")
