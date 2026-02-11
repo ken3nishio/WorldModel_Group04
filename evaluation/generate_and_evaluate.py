@@ -408,6 +408,8 @@ def run_pipeline(args):
         config["distilled_cfg_scale"] = args.distilled_cfg_scale
     if args.beta is not None:
         config["beta"] = args.beta
+    if args.blur is not None:
+        config["blur"] = args.blur
     if args.sections is not None:
         config["total_latent_sections"] = args.sections
 
@@ -640,6 +642,8 @@ def main():
                         help="Distilled CFG Scale")
     parser.add_argument("--beta", type=float, default=None,
                         help="Adaptive CFG Beta")
+    parser.add_argument("--blur", type=float, default=None,
+                        help="Temporal Blur Sigma")
     parser.add_argument("--sections", type=int, default=None,
                         help="生成セクション数（1 ≈ 5秒）")
 
