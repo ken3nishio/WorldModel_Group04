@@ -13,32 +13,28 @@ def main():
     parser.add_argument("--image", required=True, help="入力画像の絶対パス")
     parser.add_argument("--beta", type=float, default=0.0, help="Adaptive CFG Beta (Default: 0.0)")
     parser.add_argument("--blur", type=float, default=0.0, help="Temporal Blur Sigma (Default: 0.0)")
+    parser.add_argument("--length", type=int, default=5, help="動画の長さ（秒）。内部でセクション数に変換されます (Default: 5)")
     parser.add_argument("--seed", type=int, default=31337, help="乱数シード (Default: 31337)")
     parser.add_argument("--device", default="cuda", help="実行デバイス (cuda / cpu)")
     parser.add_argument("--note", default="default", help="実験名のsuffix（メモ用）")
     
     args = parser.parse_args()
 
+    # セクション数の計算 (1 section ≈ 1.1s @ 30fps)
+    # length (sec) / 1.1 => sections
+    sections = max(1, int(args.length / 1.1 + 0.5))
+
     # 出力ディレクトリ名の構築: timestamp_beta_XX_blur_YY_note
-    # generate_and_evaluate.py は output_dir/run_timestamp を作るので、
-    # ここでは親ディレクトリを指定し、run_timestamp を期待する形になりますが、
-    # わかりやすくするために output_dir 自体を実験名にしたいところです。
-    # しかし generate_and_evaluate.py の仕様上、output_dir の中にさらに run_timestamp フォルダを作ります。
-    # なので、ここでは experiments/runs を指定し、生成されるフォルダ名はタイムスタンプ任せになります。
-    # 
-    # 修正: generate_and_evaluate.py は output_dir/run_<timestamp> を生成します。
-    # ユーザーが見つけやすいように、シンボリックリンクを貼るか、
-    # あるいは generate_and_evaluate.py の出力先ロジックに依存します。
-    
-    # ここではシンプルに、experiments/runs直下に出力させます。
     output_base = os.path.join(PROJECT_ROOT, "experiments/runs")
     
     cmd = [
-        "python3", GENERATE_SCRIPT,
+        "python", GENERATE_SCRIPT,
         "--input_image", args.image,
         "--beta", str(args.beta),
         "--blur", str(args.blur),
+        "--sections", str(sections),
         "--seed", str(args.seed),
+        "--length", str(args.length),
         "--output_dir", output_base,
         "--device", args.device,
     ]
