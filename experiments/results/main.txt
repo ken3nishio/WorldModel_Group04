@@ -1,0 +1,19 @@
+/home/hiroto/matsuolab/world_model/experiments/results/successful_data_blur_1.3_beta_-0.5.mp4
+は成功をした。
+これを評価をしたい。
+
+まずプロンプトは以下
+"
+Static background. A man walks forward and out of view. Empty background remains.
+"
+
+実験条件は以下。
+use_cache = True
+length: 5s
+steps: 25
+seed:31337
+cfg scale: 6
+distilled cfg scale: 10
+mp4 compression: 16
+beta: -0.5
+blur: 1.3
