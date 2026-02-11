@@ -5,7 +5,7 @@ import subprocess
 from datetime import datetime
 
 # プロジェクトルート
-PROJECT_ROOT = "/WorldModel_Group04"
+PROJECT_ROOT = ""
 GENERATE_SCRIPT = os.path.join(PROJECT_ROOT, "evaluation/generate_and_evaluate.py")
 
 def main():
