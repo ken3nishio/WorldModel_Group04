@@ -1,0 +1,18 @@
+[
+  {
+    "id": "A1",
+    "category": "A_Standard",
+    "prompt": "A young woman with a gentle smile, standing in a sunlit garden, looking directly at the camera. High quality, 4k.",
+    "target_prompt": "A young woman with a gentle smile, standing in a sunlit garden",
+    "seed": 42,
+    "input_image": "experiments/inputs/434605182-f3bc35cf-656a-4c9c-a83a-bbab24858b09.jpg"
+  },
+  {
+    "id": "B1",
+    "category": "B_Disappearance",
+    "prompt": "The man gradually disappears.",
+    "target_prompt": "empty background, street scene only",
+    "seed": 42,
+    "input_image": "experiments/inputs/434605182-f3bc35cf-656a-4c9c-a83a-bbab24858b09.jpg"
+  }
+]
