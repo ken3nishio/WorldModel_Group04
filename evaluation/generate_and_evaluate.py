@@ -59,7 +59,7 @@ from diffusers_helper.clip_vision import hf_clip_vision_encode
 from diffusers_helper.bucket_tools import find_nearest_bucket
 
 # Evaluation imports (from evaluate_successful_case.py)
-from evaluation.evaluate_successful_case import (
+from evaluation.evaluation_successful_case import (
     load_frames_pil,
     load_frames_tensor,
     evaluate_disappearance,
