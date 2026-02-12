@@ -38,6 +38,9 @@ def main():
         "--output_dir", output_base,
         "--device", args.device,
     ]
+    
+    if args.prompt:
+        cmd.extend(["--prompt", args.prompt])
 
     print(f"\n🚀 実験を開始します")
     print(f"📂 出力ベース: {output_base}")
