@@ -36,9 +36,10 @@ def adaptive_cfg_scale(sigma, cfg_base, cfg_min=1.0, beta=0.7, t_scale=1000.0):
     
     if beta >= 0:
         # Positive Beta: Start Low -> End High (Decay)
-        # 修正版: ユーザーフィードバック「もっと動かすよりも、制限（一貫性）を重視」。
-        # Low CFGの期間を短縮し、早期に高いCFGに戻すことで、画像の崩壊を防ぐ。
-        # sigma ** 2.0 (2次減衰) を採用。
+        # 修正版: ユーザーフィードバック「0.7とかの方がいいかも」。
+        # Power=2.0 (制限強) -> Robot Dancing (動き出し失敗)
+        # Power=0.5 (制限弱) -> 動きすぎ (崩壊)
+        # Power=0.7 (バランス型) を採用。Beta=1.0と組み合わせるのが推奨。
         sigma_curve = sigma_clamped ** 0.7
         cfg_adjusted = cfg_min + (cfg_base - cfg_min) * (1.0 - beta * sigma_curve)
     else:
