@@ -13,6 +13,11 @@ import numpy as np
 import argparse
 import math
 import gc
+import requests
+import json
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from PIL import Image
 from diffusers import AutoencoderKLHunyuanVideo
@@ -98,13 +103,34 @@ def cleanup_memory():
     torch.cuda.empty_cache()
     gc.collect()
 
-@torch.no_grad()
+def send_slack_notification(message):
+    try:
+        webhook_url = os.environ.get("SLACK_WEBHOOK_URL") or os.environ.get("SLACKWEBHOOK")
+        if not webhook_url:
+            # Try getting from colab userdata if available
+            try:
+                from google.colab import userdata
+                webhook_url = userdata.get('SLACK_WEBHOOK_URL')
+            except:
+                pass
+        
+        if not webhook_url:
+            print("Slack webhook not found. Skipping notification.")
+            return
+        
+        payload = {"text": message}
+        requests.post(webhook_url, data=json.dumps(payload), headers={'Content-Type': 'application/json'})
+        print(f"Slack notification sent: {message}")
+    except Exception as e:
+        print(f"Failed to send Slack notification: {e}")
+
 @torch.no_grad()
 def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, adaptive_cfg_beta, temporal_blur_sigma):
     total_latent_sections = (total_second_length * 30) / (latent_window_size * 4)
     total_latent_sections = int(max(round(total_latent_sections), 1))
 
     job_id = generate_timestamp()
+    output_filename = None
 
     stream.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'Starting ...'))))
 
@@ -264,7 +290,8 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
             vae.to(cpu)
             torch.cuda.empty_cache()
 
-            output_filename = os.path.join(outputs_folder, f'{job_id}_{total_generated_latent_frames}.mp4')
+            safe_prompt = "".join([c for c in prompt if c.isalnum() or c in (' ', '_')]).rstrip()[:20].replace(" ", "_")
+            output_filename = os.path.join(outputs_folder, f'{job_id}_{total_generated_latent_frames}_beta{adaptive_cfg_beta}_blur{temporal_blur_sigma}_{safe_prompt}.mp4')
             save_bcthw_as_mp4(history_pixels, output_filename, fps=30, crf=mp4_crf)
             
             # Progress update
@@ -273,8 +300,13 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
             desc = f'Total generated frames: {int(max(0, total_generated_latent_frames * 4 - 3))}'
             stream.output_queue.push(('progress', (None, desc, make_progress_bar_html(percentage, desc))))
 
+        if output_filename:
+            send_slack_notification(f"Video generation complete: {os.path.basename(output_filename)}")
+
     except:
         traceback.print_exc()
+        # エラー時もSlack通知
+        send_slack_notification(f"Video generation failed! Check logs for details.")
         cleanup_memory()
 
     stream.output_queue.push(('end', None))
