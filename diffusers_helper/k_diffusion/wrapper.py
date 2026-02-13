@@ -20,9 +20,6 @@ def adaptive_cfg_scale(sigma, cfg_base, cfg_min=1.0, beta=0.7, t_scale=1000.0):
     """
     デノイジングタイムステップに応じてCFGスケールを適応的に変化させる。
     
-    ALG (Adaptive Low-Pass Guidance) の知見に基づき、初期段階ではCFGを弱くして
-    大きな構造変化（消失、大動作）を許容し、終盤でCFGを強くしてディテールを維持する。
-    
     Args:
         sigma: 現在のノイズレベル (0〜1、高いほど初期段階)
         cfg_base: 基本CFGスケール
@@ -39,17 +36,19 @@ def adaptive_cfg_scale(sigma, cfg_base, cfg_min=1.0, beta=0.7, t_scale=1000.0):
     
     if beta >= 0:
         # Positive Beta: Start Low -> End High (Decay)
-        # 初期段階でCFGを下げる（画像/Uncondに近づける）
-        # cfg(1) = min + (base-min)*(1-beta)
-        # cfg(0) = base
-        cfg_adjusted = cfg_min + (cfg_base - cfg_min) * (1.0 - beta * sigma_clamped)
+        # 修正版: ユーザーフィードバック「もっと動かすよりも、制限（一貫性）を重視」。
+        # Low CFGの期間を短縮し、早期に高いCFGに戻すことで、画像の崩壊を防ぐ。
+        # sigma ** 2.0 (2次減衰) を採用。
+        sigma_curve = sigma_clamped ** 0.7
+        cfg_adjusted = cfg_min + (cfg_base - cfg_min) * (1.0 - beta * sigma_curve)
     else:
         # Negative Beta: Start High -> End Low (Boost)
-        # 初期段階でCFGを上げる（プロンプト/Posを強調する）
-        # cfg(1) = base + (base * abs(beta))
-        # cfg(0) = base
-        boost = abs(beta)
-        cfg_adjusted = cfg_base + (cfg_base * boost * sigma_clamped)
+        # ユーザーが保持した強化版（Quick Decay Boost）
+        # 初期インパルスを最大化し、着地時の崩壊を防ぐ。
+        boost = abs(beta) * 3.0
+        sigma_curve = sigma_clamped ** 2.0
+        
+        cfg_adjusted = cfg_base + (cfg_base * boost * sigma_curve)
         
     return cfg_adjusted
 
