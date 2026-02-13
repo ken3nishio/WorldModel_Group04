@@ -105,8 +105,15 @@ def analyze_clip_model(frames, target_prompt, object_prompt, empty_prompt, devic
         batch_frames = frames[i : i + batch_size]
         inputs_image = processor(images=batch_frames, return_tensors="pt").to(device)
         with torch.no_grad():
+            # Robust embedding extraction
             img_feats = model.get_image_features(**inputs_image)
+            if not isinstance(img_feats, torch.Tensor):
+                img_feats = getattr(img_feats, "image_embeds", getattr(img_feats, "pooler_output", img_feats))
+
             txt_feats = model.get_text_features(**inputs_target)
+            if not isinstance(txt_feats, torch.Tensor):
+                txt_feats = getattr(txt_feats, "text_embeds", getattr(txt_feats, "pooler_output", txt_feats))
+
             img_feats = img_feats / img_feats.norm(p=2, dim=-1, keepdim=True)
             txt_feats = txt_feats / txt_feats.norm(p=2, dim=-1, keepdim=True)
             sim = (img_feats @ txt_feats.T).squeeze()
