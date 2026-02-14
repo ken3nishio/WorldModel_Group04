@@ -94,9 +94,21 @@ python experiments/run_experiment_batch.py
 
 ---
 
+*   **開発者向け**: Adaptive CFG のコード変更とロジックの詳細については [実装の詳細](docs/implementation_details.md) を参照してください。
+
 ## Citations
 本研究は以下の技術をベースにしています。
 
 *   **HunyuanVideo**: Foundation Model used as the backbone.
 *   **FramePack**: Memory optimization technique for long video generation.
 *   **FreeInit / ALG**: Inspiration for inference-time intervention.
+
+## License & Acknowledgements
+
+本リポジトリのコードベースは [FramePack](https://github.com/lllyasviel/FramePack) (Apache 2.0) および [HunyuanVideo](https://github.com/Tencent/HunyuanVideo) を元にしており、これらと同様に **Apache 2.0 License** の下で公開されます。
+
+### 注意事項
+*   **Model Weights**: ここで使用される HunyuanVideo のモデルウェイトは、Tencent の定めるライセンスに従ってください。
+*   **Research Use Only**: 本成果物は研究目的での利用を想定しています。
+
+本研究の一部は、[FramePack](https://lllyasviel.github.io/frame_pack_gitpage/) および [HunyuanVideo](https://github.com/Tencent/HunyuanVideo) の素晴らしい成果に支えられています。著者に深く感謝いたします。
