@@ -22,7 +22,7 @@ HunyuanVideoを用い、難易度の高い「Backflip（バク転）」タスク
 
 \begin{table}[h]
   \centering
-  \caption{Relaxation Strength ($\beta$) による性能比較 ($p=0.7, \sigma_{blur}=0.6$ 固定)}
+  \caption{Relaxation Strength ($\beta$) による性能比較 (Ours/Forced は $p=0.7, \sigma_{blur}=0.6$)}
   \label{tab:beta_compare}
   \begin{tabular}{lcccc}
     \toprule
@@ -30,7 +30,7 @@ HunyuanVideoを用い、難易度の高い「Backflip（バク転）」タスク
     \midrule
     Forced (Boost) & -1.0 & 0.007 & spinning poi & 0.07 \\
     Forced (Boost) & -0.5 & 0.013 & breakdancing & 0.18 \\
-    Baseline & 0.0 & 0.004 & \textit{Static (dancing)} & - \\
+    Baseline (Pure) & 0.0 & 0.073 & breakdancing & 0.14 \\
     Ours (Mild) & 0.5 & 0.130 & somersaulting & 0.13 \\
     \textbf{Ours (Best)} & \textbf{0.75} & \textbf{0.394} & \textbf{somersaulting} & \textbf{0.39} \\
     Ours (Over) & 1.0 & 0.028 & capoeira & 0.09 \\
@@ -38,8 +38,8 @@ HunyuanVideoを用い、難易度の高い「Backflip（バク転）」タスク
   \end{tabular}
 \end{table}
 
-表\ref{tab:beta_compare}が示すように、$\beta < 0$ の設定（初期CFGを強めるBoost戦略）では、VideoMAEスコアは低迷し、生成されるクラスもターゲットとは無関係なもの（spinning poiなど）となった。これは、初期の拘束を強めることが、逆にモデルを局所解（Local Minima）に閉じ込め、動的な遷移を阻害したためと考えられる。
-一方、$\beta > 0$（Relaxation戦略）ではスコアが劇的に向上した。特に $\beta=0.75$ において VideoMAE は \textbf{0.394} に達し、クラス分類も明確に "somersaulting" となった。しかし、$\beta=1.0$ まで強めると逆にスコアが低下しており、過度な緩和は生成の崩壊を招くことが示唆された。$\beta=0.75$ が「構造維持」と「動的遷移」の最適なトレードオフ点（Sweet Spot）であると結論付けられる。
+表\ref{tab:beta_compare}が示すように、$\beta < 0$ の設定（Boost戦略）では、VideoMAEスコアは低迷し（0.013等）、生成されるクラスもターゲットとは異なるものとなった。
+一方、純粋なBaseline（$\beta=0, \sigma=0$）においてもスコアは 0.073 に留まり、クラスも "breakdancing" と判定された。これに対し、本手法（Relaxation戦略）ではスコアが劇的に向上した。特に $\beta=0.75$ において VideoMAE は \textbf{0.394} に達し、Baseline比で約 \textbf{5.4倍} の性能向上を実現した。クラス分類も明確に "somersaulting" となり、$\beta=0.75$ が「構造維持」と「動的遷移」の最適なトレードオフ点（Sweet Spot）であると結論付けられる。
 
 \subsection{定性的な失敗モードの分析}
 定量スコアだけでなく、生成された映像の挙動を詳細に観察することで、各パラメータが生成ダイナミクスに与える影響がより明確になった。以下に代表的な失敗モードを分類する。

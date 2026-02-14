@@ -14,16 +14,17 @@
 \etitle{Adaptive Control of Temporal Inertia in Large-Scale Video Generation Models}
 }
 
-\jaddress{未定}
+\jaddress{*1 sr24584e@st.omu.ac.jp}
+\jaddress{*2 nishio@ou.ac.jp}
 
 \author{%
-\jname{著者名\first}
-\ename{Author Name}
+\jname{新川大翔\first, 西尾謙一\second}
+\ename{Hiroto Shinkawa, Kennichi Nishio}
 }
 
 \affiliate{
-\jname{\first{}所属}
-\ename{Affiliation}
+\jname{\first{大阪公立大学}. \second{大阪大学}}
+\ename{Osaka Metropolitan University, Osaka University}
 }
 
 %\setcounter{page}{1}
@@ -121,7 +122,7 @@ Prompt-to-Prompt \cite{p2p} は、生成される物体の形状や位置（ア�
 \begin{enumerate}
     \item \textbf{Static Deathの現象論的解明}: モデルが過去の文脈に過剰に囚われる現象を「エネルギー地形における深い局所解への埋没」としてモデル化し、従来のインパルス（Boost）アプローチがカオスを招くことを明らかにした。
     \item \textbf{Relaxation理論の確立}: 力で脱出するのではなく、初期拘束を一時的に緩和して障壁を下げる「Relaxation」アプローチを提唱し、その有効性を理論的・実験的に実証した。
-    \item \textbf{劇的な性能向上}: 提案手法により、追加学習なしでVideoMAEスコアを約100倍（0.004 $\rightarrow$ 0.394）に向上させ、従来不可能であった「バク転」等の動的アクション生成を実現した。
+    \item \textbf{劇的な性能向上}: 提案手法により、追加学習なしでVideoMAEスコアを約5.4倍（0.073 $\rightarrow$ 0.394）に向上させ、従来不可能であった「バク転」等の動的アクション生成を実現した。
 \end{enumerate}
 本手法は、高画質化・安定化が進む今後の動画生成モデルにおいて、失われがちな「動的な表現力」を取り戻すための標準的な制御技術となることが期待される。
 
