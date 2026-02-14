@@ -55,6 +55,7 @@ def sample_hunyuan(
         # Step-Adaptive CFG パラメータ
         adaptive_cfg_beta=0.0,
         adaptive_cfg_min=1.0,
+        adaptive_cfg_power=0.7, # Default power
         # Temporal Blur パラメータ
         temporal_blur_sigma=0.0,  # 0.0で無効。0.5~2.0程度を推奨
         **kwargs,
@@ -112,6 +113,7 @@ def sample_hunyuan(
             enabled=adaptive_cfg_beta != 0.0,
             beta=adaptive_cfg_beta,
             cfg_min=adaptive_cfg_min,
+            power=adaptive_cfg_power,
         ),
         positive=dict(
             pooled_projections=prompt_poolers,
