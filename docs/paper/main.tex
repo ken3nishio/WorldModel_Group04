@@ -1,5 +1,5 @@
 \documentclass[twocolumn]{ujarticle}
-\usepackage{jsaiac}
+% \usepackage{jsaiac}
 \usepackage[dvipdfmx]{graphicx}
 \usepackage{url}
 \usepackage{amsmath}
@@ -101,9 +101,26 @@ HunyuanVideoを用い、「消失（Disappearance）」と「バク転（Backfli
 \end{itemize}
 
 \subsection{定量的評価結果}
-予備実験において、Adaptive CFGの減衰パラメータ $p$ (Power) を変化させた際の結果を以下に示す。
-\begin{itemize}
-    \item \textbf{$p=2.0$ (High Stiffness)}: LPIPSは極めて低い（安定）が、CLIP Scoreも低迷した。これはモデルが動作を拒否し、静的な状態（Robot Dancing）に留まったことを示す。
-    \item \textbf{$p=0.7$ (Balanced)}: LPIPSはわずかに上昇したが、CLIP Scoreが大幅に向上した。これは、物理的な整合性をある程度犠牲にしつつ、プロンプトのアクション指示を受け入れたことを示唆しており、我々が目指す「動的生成」の成功例である。
-\end{itemize}
+「バク転（Backflip）」タスクにおけるパラメータごとの定量評価結果を表\ref{tab:results}に示す。
+
+\begin{table}[htbp]
+  \centering
+  \caption{バク転タスクにおける各パラメータ設定の定量評価比較。$\beta$ は介入強度、Blurは忘却強度を表す。VideoMAEスコアは "somersaulting" 等のターゲット動作クラスの確率を示す。}
+  \label{tab:results}
+  \begin{tabular}{lccccc}
+    \hline
+    Condition & $\beta$ & Blur & CLIP $\uparrow$ & LPIPS $\downarrow$ & VideoMAE $\uparrow$ \\
+    \hline
+    Baseline & 0.0 & 0.0 & 0.152 & \textbf{0.166} & 0.004 \\
+    \textbf{Ours} & \textbf{0.9} & \textbf{0.6} & \textbf{0.187} & 0.244 & \textbf{0.221} \\
+    High-Blur & 1.0 & 1.5 & 0.180 & 0.260 & 0.034 \\
+    \hline
+  \end{tabular}
+\end{table}
+
+表\ref{tab:results}より、ベースライン（Baseline）ではLPIPSが最も低く安定しているが、VideoMAEスコアはほぼゼロであり、アクション生成に失敗していることがわかる（Static Death）。
+一方、提案手法（Ours）ではVideoMAEスコアがベースライン比で約55倍に向上しており、CLIP Scoreも最大値を示した。LPIPSは0.244と上昇しているが、これは静止状態からの脱却に伴う必然的な変化であり、映像崩壊（High-Blur条件の0.260以上）には至っていない。
+High-Blur条件ではクリップスコアは高いものの、VideoMAEスコアが低下しており、過度な忘却が動作の一貫性を損なうことを示唆している。
+
+以上の結果より、提案手法のパラメータ $\beta$ と $p$ を適切に設定することで、一貫性と動的変化のトレードオフを能動的に制御し、従来困難であったアクション生成が可能になることが確認された。
 \end{document}
