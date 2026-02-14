@@ -412,6 +412,9 @@ def run_pipeline(args):
         config["blur"] = args.blur
     if args.sections is not None:
         config["total_latent_sections"] = args.sections
+    elif args.length is not None:
+        # 1 section is approx 1.1s (33 frames @ 30fps)
+        config["total_latent_sections"] = max(1, int(args.length / 1.1 + 0.5))
 
     # --- Output directory ---
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -644,8 +647,10 @@ def main():
                         help="Adaptive CFG Beta")
     parser.add_argument("--blur", type=float, default=None,
                         help="Temporal Blur Sigma")
+    parser.add_argument("--length", type=float, default=None,
+                        help="動画の長さ（秒）。指定すると sections を自動計算します (1.1s/section)")
     parser.add_argument("--sections", type=int, default=None,
-                        help="生成セクション数（1 ≈ 5秒）")
+                        help="生成セクション数（1 ≈ 1.1秒）")
 
     # Evaluation parameters
     parser.add_argument("--object_prompt", default=None,

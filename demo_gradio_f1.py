@@ -15,9 +15,6 @@ import math
 import gc
 import requests
 import json
-from dotenv import load_dotenv
-
-load_dotenv()
 
 from PIL import Image
 from diffusers import AutoencoderKLHunyuanVideo
@@ -125,7 +122,7 @@ def send_slack_notification(message):
         print(f"Failed to send Slack notification: {e}")
 
 @torch.no_grad()
-def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, adaptive_cfg_beta, temporal_blur_sigma):
+def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, adaptive_cfg_beta, adaptive_cfg_power, temporal_blur_sigma):
     total_latent_sections = (total_second_length * 30) / (latent_window_size * 4)
     total_latent_sections = int(max(round(total_latent_sections), 1))
 
@@ -265,6 +262,7 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
                 callback=callback,
                 adaptive_cfg_beta=adaptive_cfg_beta,
                 adaptive_cfg_min=1.0,
+                adaptive_cfg_power=adaptive_cfg_power,
                 temporal_blur_sigma=temporal_blur_sigma,
             )
 
@@ -291,7 +289,7 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
             torch.cuda.empty_cache()
 
             safe_prompt = "".join([c for c in prompt if c.isalnum() or c in (' ', '_')]).rstrip()[:20].replace(" ", "_")
-            output_filename = os.path.join(outputs_folder, f'{job_id}_{total_generated_latent_frames}_beta{adaptive_cfg_beta}_blur{temporal_blur_sigma}_{safe_prompt}.mp4')
+            output_filename = os.path.join(outputs_folder, f'{job_id}_{total_generated_latent_frames}_beta{adaptive_cfg_beta}_pow{adaptive_cfg_power}_blur{temporal_blur_sigma}_{safe_prompt}.mp4')
             save_bcthw_as_mp4(history_pixels, output_filename, fps=30, crf=mp4_crf)
             
             # Progress update
@@ -305,7 +303,6 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
 
     except:
         traceback.print_exc()
-        # エラー時もSlack通知
         send_slack_notification(f"Video generation failed! Check logs for details.")
         cleanup_memory()
 
@@ -313,7 +310,7 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
     return
 
 
-def process(input_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, adaptive_cfg_beta, temporal_blur_sigma):
+def process(input_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, adaptive_cfg_beta, adaptive_cfg_power, temporal_blur_sigma):
     global stream
     assert input_image is not None, 'No input image!'
 
@@ -321,7 +318,7 @@ def process(input_image, prompt, n_prompt, seed, total_second_length, latent_win
 
     stream = AsyncStream()
 
-    async_run(worker, input_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, adaptive_cfg_beta, temporal_blur_sigma)
+    async_run(worker, input_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, adaptive_cfg_beta, adaptive_cfg_power, temporal_blur_sigma)
 
     output_filename = None
 
@@ -389,6 +386,8 @@ with block:
 
 
                 adaptive_cfg_beta = gr.Slider(label="Adaptive CFG Beta (Pos=Decay, Neg=Boost)", minimum=-1.0, maximum=1.0, value=0.0, step=0.05, info="Positive (e.g. 0.7): Start Low CFG -> End High. Negative (e.g. -0.5): Start High CFG -> End Normal. Use Negative for 'Disappearance'.")
+                
+                adaptive_cfg_power = gr.Slider(label="Adaptive CFG Power (Decay Curve)", minimum=0.1, maximum=5.0, value=0.7, step=0.1, info="Controls how fast the CFG change decays. 0.7 = Slow/Linear-ish. 2.0 = Fast/Sharp.")
 
                 temporal_blur_sigma = gr.Slider(label="Temporal Blur Sigma (Context Unlearning)", minimum=0.0, maximum=5.0, value=0.0, step=0.1, info="0=Disabled. 1.0-2.0=Blur past context. Helps to 'forget' previous objects for disappear/transition tasks.")
 
@@ -400,7 +399,7 @@ with block:
 
     gr.HTML('<div style="text-align:center; margin-top:20px;">Share your results and find ideas at the <a href="https://x.com/search?q=framepack&f=live" target="_blank">FramePack Twitter (X) thread</a></div>')
 
-    ips = [input_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, adaptive_cfg_beta, temporal_blur_sigma]
+    ips = [input_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, adaptive_cfg_beta, adaptive_cfg_power, temporal_blur_sigma]
     start_button.click(fn=process, inputs=ips, outputs=[result_video, preview_image, progress_desc, progress_bar, start_button, end_button])
     end_button.click(fn=end_process)
 

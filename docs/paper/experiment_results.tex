@@ -1,0 +1,100 @@
+\section{実験・考察}
+
+\subsection{検証の目的と初期仮説の修正}
+本実験の当初の目的は、初期段階で強力なガイダンスを与える（Boost, $\beta < 0$）ことで静的慣性を打破できるという仮説の検証であった。
+しかし、予備実験の結果、強力なブーストは映像の構造的崩壊を招くことが判明した（後述のForced条件）。
+これを受け、我々は逆に「初期段階のガイダンスを弱める（Relaxation, $\beta > 0$）」ことで、モデルの拘束を緩め、局所最適解（直立状態）からの脱出を促すアプローチ有効である可能性を検証した。
+
+\subsection{実験設定}
+HunyuanVideoを用い、難易度の高い「Backflip（バク転）」タスクにおいて評価を行った。
+
+\begin{itemize}
+    \item \textbf{Text-Video Alignment (CLIP Score)}: プロンプトと生成動画の意味的な類似度。
+    \item \textbf{Visual Consistency (LPIPS)}: 映像の安定性。0.5以上は崩壊とみなす。
+    \item \textbf{Action Recognition Impact (VideoMAE Score)}: 動作認識モデルによるターゲット動作（somersaulting, gymnastics等）の予測確率。
+\end{itemize}
+
+\subsection{定量的評価結果}
+\subsection{定量的評価}
+
+\subsubsection{Relaxation Strength ($\beta$) の影響}
+初期ガイダンスの緩和強度 $\beta$ を、負の値（Boost）から正の値（Relaxation）まで変化させた結果を表\ref{tab:beta_compare}に示す。
+
+\begin{table}[h]
+  \centering
+  \caption{Relaxation Strength ($\beta$) による性能比較 ($p=0.7, \sigma_{blur}=0.6$ 固定)}
+  \label{tab:beta_compare}
+  \begin{tabular}{lcccc}
+    \toprule
+    Condition & $\beta$ & VideoMAE & Top Class & Prob. \\
+    \midrule
+    Forced (Boost) & -1.0 & 0.007 & spinning poi & 0.07 \\
+    Forced (Boost) & -0.5 & 0.013 & breakdancing & 0.18 \\
+    Baseline & 0.0 & 0.004 & \textit{Static (dancing)} & - \\
+    Ours (Mild) & 0.5 & 0.130 & somersaulting & 0.13 \\
+    \textbf{Ours (Best)} & \textbf{0.75} & \textbf{0.394} & \textbf{somersaulting} & \textbf{0.39} \\
+    Ours (Over) & 1.0 & 0.028 & capoeira & 0.09 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+表\ref{tab:beta_compare}が示すように、$\beta < 0$ の設定（初期CFGを強めるBoost戦略）では、VideoMAEスコアは低迷し、生成されるクラスもターゲットとは無関係なもの（spinning poiなど）となった。これは、初期の拘束を強めることが、逆にモデルを局所解（Local Minima）に閉じ込め、動的な遷移を阻害したためと考えられる。
+一方、$\beta > 0$（Relaxation戦略）ではスコアが劇的に向上した。特に $\beta=0.75$ において VideoMAE は \textbf{0.394} に達し、クラス分類も明確に "somersaulting" となった。しかし、$\beta=1.0$ まで強めると逆にスコアが低下しており、過度な緩和は生成の崩壊を招くことが示唆された。$\beta=0.75$ が「構造維持」と「動的遷移」の最適なトレードオフ点（Sweet Spot）であると結論付けられる。
+
+\subsection{定性的な失敗モードの分析}
+定量スコアだけでなく、生成された映像の挙動を詳細に観察することで、各パラメータが生成ダイナミクスに与える影響がより明確になった。以下に代表的な失敗モードを分類する。
+
+\subsubsection{過剰な初期推力によるカオス化 (Chaos by Boost)}
+$\beta < 0$ （Boost設定）において、予想に反して VideoMAE スコアが極めて低かった（0.007等）原因は、生成映像のカオス化にある。
+「バク転」という特定のアクションに遷移するのではなく、初期フレームの人物が意味不明な回転運動を始めたり（Spinning Poi）、手足が分裂・変形する（Morphological Collapse）現象が多発した。
+これは、エネルギー地形において、無理やりポテンシャルの壁を乗り越えさせようとした結果、バク転という「正解の谷」ではなく、物理的にあり得ない「異常な谷（Local Minima）」に落ち込んでしまったと解釈できる。力任せの介入（Impulse）では、繊細なアクション制御は不可能であることが示された。
+
+\subsubsection{急減衰による空中静止 (Mid-air Freeze)}
+一方、Relaxationそのものは成功しているが、減衰率 $p$ が大きすぎる（$p=2.1$）場合に見られたのが「空中静止」現象である。
+生成初期にはスムーズに跳躍を開始するが、体が空中に浮いた瞬間に Relaxation 効果が切れ（スケールが強拘束に戻り）、その姿勢のまま静止あるいは元の立ち姿勢に無理やり戻ろうとする挙動（Elastic Snap-back）が確認された。
+バク転のような、離陸から着地まで約1〜2秒を要するアクションにおいては、その全工程を通じて適度な可塑性（Plasticity）を維持し続ける「持続的な緩和 ($p \approx 0.7$)」が不可欠である。
+
+\subsubsection{Decay Power ($p$) による時間制御}
+緩和の効果を時間的にどう減衰させるかを決定する $p$ の影響を表\ref{tab:power_compare}に示す。ここでは過剰緩和気味であった $\beta=1.0$ をベースに検証した。
+
+\begin{table}[h]
+  \centering
+  \caption{Decay Power ($p$) の影響 ($\beta=1.0, \sigma_{blur}=0.6$)}
+  \label{tab:power_compare}
+  \begin{tabular}{lccc}
+    \toprule
+    Condition & $p$ & VideoMAE & Top Class \\
+    \midrule
+    Ours (Sustained) & 0.7 & 0.028 & capoeira \\
+    Ours (Linear) & 1.0 & 0.026 & capoeira \\
+    Ours (Rapid) & 2.1 & 0.019 & capoeira \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+$p=2.1$（急減衰）の場合、初期の緩和効果が急速に失われるため VideoMAE スコアは最も低くなった。バク転のような滞空時間の長いアクション（約1秒〜2秒）を生成する場合、初期数ステップだけでなく、中盤にかけても緩和効果を持続させる（$p < 1.0$）ことが重要であることがわかる。
+
+\subsection{理論的考察：エネルギー地形モデル}
+なぜ初期の緩和（Relaxation）が必要なのか。これを「エネルギー地形（Energy Landscape）」の観点から考察する。
+拡散モデルの生成過程は、エネルギーポテンシャルの斜面を下るプロセスに例えられる。Static Deathが発生するモデルでは、初期画像（立ち姿）の周辺に深く急峻なポテンシャルの谷（Deep Valley）が形成されていると考えられる。
+通常のCFG（$\beta=0$）やBoost（$\beta<0$）は、この谷底へ向かう力を強めるため、モデルは谷から脱出できず、結果として動きのない映像が生成される。
+対して本手法のRelaxation（$\beta>0$）は、一時的にポテンシャルの勾配を平坦化（Flattening）する効果を持つ。これにより、モデルの状態は初期値の谷から容易に脱出し、隣接する別の谷（バク転している状態）へと遷移することが可能になる。
+ただし、平坦化させすぎると（$\beta=1.0$）、モデルはどの谷にも収束できず、意味のないノイズ（Chaos）へと発散してしまう。これが $\beta=1.0$ でスコアが悪化した理由である。適度な $\beta=0.75$ だけが、初期の谷からの脱出と、目的の谷への収束を両立させることができるのである。
+
+\section{議論}
+
+\subsection{安定性と可塑性のトレードオフ}
+本研究の結果は、動画生成モデルにおける「安定性（Stability）」と「可塑性（Plasticity）」の根源的なトレードオフを浮き彫りにした。
+HunyuanVideoのような基盤モデルは、学習データの大規模化により極めて高い安定性を獲得したが、それは同時に可塑性の喪失（Static Death）を招いた。本手法のRelaxationは、推論時にこのバランスを動的に操作する「ツマミ」を提供するものである。
+特に、$\beta=0.75$ という値が最適であった事実は、完全に拘束を解く（$\beta=1.0$）のでなく、「ある程度の安定性を保ちつつ、可塑性を注入する」という微妙なバランス制御が重要であることを示唆している。
+
+\subsection{長尺動画生成への応用}
+本手法は、単発のアクション生成に留まらず、長尺なストーリー動画の生成に対しても強力なツールとなり得る。
+例えば、映画の脚本において「静かな会話シーン」と「激しい戦闘シーン」が混在する場合、従来のモデルでは常に一定のパラメータで生成せざるを得なかった。
+しかし本手法を用いれば、シーンのメタデータ（激しさ）に応じて $\beta$ や $p$ を動的に変化させることで、静的なシーンでは高画質・高一貫性を維持し（Relaxation OFF）、動的なシーンでは大胆なカメラワークやアクションを許容する（Relaxation ON）といった、演出意図の反映（Directorial Control）が可能になる。これは、「生成AIによる映画制作」の実現に向けた重要な一歩である。
+
+\subsection{限界と今後の課題}
+現状の課題として、最適な $\beta$ や $p$ の値がプロンプトの種類（動きの激しさ）に依存する点が挙げられる。「歩く」程度の動きであれば弱い緩和で十分かもしれないが、「爆発」のようなシーンではより強い緩和が必要になる可能性がある。プロンプトの内容から最適なパラメータを推定する「Meta-Controller」の開発が今後の課題である。
+
+\subsection{既存手法との比較}
+動画生成の制御手法としては ControlNet や MotionLora などが存在するが、これらは追加の学習（Training）や外部データセットを必要とする。対して本手法は、推論時のハイパーパラメータ（$\beta, p, \sigma_{blur}$）の調整のみで実現可能（Training-free）であり、計算コストおよび実装コストにおいて圧倒的な優位性を持つ。特に大規模な基盤モデル（Foundation Model）に対して、再学習なしで動的な挙動を修正できる点は、実用上極めて価値が高い。

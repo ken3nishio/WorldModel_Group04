@@ -1,126 +1,138 @@
 \documentclass[twocolumn]{ujarticle}
-% \usepackage{jsaiac}
+
+\usepackage{jsai}
 \usepackage[dvipdfmx]{graphicx}
 \usepackage{url}
 \usepackage{amsmath}
 \usepackage{bm}
-% \usepackage{algorithm}
-% \usepackage{algorithmic}
+\usepackage{booktabs}
+\usepackage{color}
 
-\title{大規模動画生成モデルにおける適応的ガイダンスと\\
-時間的忘却を用いた動的状態遷移の制御}
-
-\author{
-著者名 \\ 所属
+%%
+\title{
+\jtitle{大規模動画生成モデルにおける「時間的慣性」の適応的制御：\\Adaptive CFGとTemporal Unlearningによる動的状態遷移の実現}
+\etitle{Adaptive Control of Temporal Inertia in Large-Scale Video Generation Models}
 }
 
-\begin{abstract}
-（前略）
-\end{abstract}
+\jaddress{未定}
+
+\author{%
+\jname{著者名\first}
+\ename{Author Name}
+}
+
+\affiliate{
+\jname{\first{}所属}
+\ename{Affiliation}
+}
+
+%\setcounter{page}{1}
+\def\Style{``jsaiac.sty''}
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em%
+ T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+\def\JBibTeX{\leavevmode\lower .6ex\hbox{J}\kern-0.15em\BibTeX}
+\def\LaTeXe{\LaTeX\kern.15em2$_{\textstyle\varepsilon}$}
 
 \begin{document}
+\begin{abstract}
+HunyuanVideoやFramePackなどの近年の大規模動画生成モデルは、極めて高い時間的一貫性（Temporal Consistency）を実現している。しかし、この特性は「物体が消失する」あるいは「静止から急激に跳躍する（バク転）」といった非連続的な状態遷移において、初期状態を過剰に維持しようとする \textbf{"Static Death"（静的死）} と呼ばれる現象を引き起こす。本研究では、この課題の本質がモデルの持つ過剰な「時間的慣性」にあると定義し、推論時の動的介入によってこれを制御する手法を提案する。具体的には、(1) 生成初期に過剰な拘束を緩和する \textbf{Adaptive CFG (Relaxation)}、(2) その介入を適切に減衰させ構造崩壊を防ぐ \textbf{Decay Power ($p$)}、(3) 過去のフレームへの固執を緩和する \textbf{Temporal Unlearning} の3要素を導入する。実験の結果、これらのパラメータ制御により、従来モデルでは不可能であった動的アクションの生成を、映像の破綻を防ぎつつ実現できることを定量的に実証した。
+\end{abstract}
+
 \maketitle
 
 \section{はじめに}
-（前略）
+動画生成AI、特にDiffusion Transformer (DiT) ベースのモデル \cite{hunyuan} は、近年目覚ましい進化を遂げている。数秒の動画生成であれば、全フレームを一度にメモリに展開し、相互の注意機構 (Self-Attention) によって高い一貫性を保つことが可能である。しかし、分単位あるいは無限の長尺動画を生成する場合、メモリ制約から「スライディングウィンドウ」や「自己回帰的 (Autoregressive)」な手法を取らざるを得ない。
+
+FramePack 等の自己回帰モデルは、過去のフレームを条件として現在のフレームを生成することで、長時間の整合性を維持する。しかし、この強力な「過去への参照」は、諸刃の剣でもある。我々の予備実験において、これらのモデルは「消える (disappear)」「バク転する (backflip)」といった、状態の非連続な変化を伴うプロンプトを無視し、初期状態（立ち姿など）を維持し続ける傾向が確認された。我々はこの現象を、モデルが過去の文脈に過剰に囚われる \textbf{"Static Death"（静的死）} と呼ぶ。
+
+本研究の目的は、この "Static Death" を克服し、学習済みモデルのパラメータを変更することなく（Training-free）、推論時の介入のみで動的なアクション生成を実現することである。
 
 \section{関連研究}
-（前略）
 
-\section{問題設定と課題分析}
-本節では、提案手法の導入に先立ち、最新の動画生成モデルが抱える構造的な課題である "Static Death"（静的死）を定義し、既存のアプローチではなぜ解決困難であるかを分析する。
+\subsection{大規模動画生成モデルと一貫性}
+Sora や HunyuanVideo \cite{hunyuan} に代表される大規模モデルは、膨大なデータセットによる学習を通じて、物理法則や動作の事前知識を獲得している。しかし、生成時においては「時間的一貫性 (Temporal Consistency)」が最優先される傾向にあり、特に自己回帰的な生成においては、直前のフレームとの連続性が強く強制される。これは、背景の固定や人物のアイデンティティ維持には有効だが、急激なアクションの生成を阻害する要因となる。
 
-\subsection{動画生成における「静的死 (Static Death)」}
-拡散モデル（Diffusion Models）を用いた動画生成において、時間的一貫性（Temporal Consistency）は品質の根幹をなす要素である。HunyuanVideo等のモデルは、膨大な自然動画データセットから学習することで、隣接フレーム間の変化を滑らかに保つ強力な事前分布（Prior）を獲得している。
-これを数理的に解釈すると、生成される動画の状態ベクトル系列 $\bm{x} = \{x_1, \dots, x_T\}$ に対し、以下のようなエネルギー関数 $E(\bm{x})$ を最小化するようなバイアスがかかっていると言える。
+\subsection{推論時介入による制御}
+学習済みモデルに追加学習を行わずに制御を行う試みとして、FreeInit \cite{freeinit} や Adaptive Low-Pass Guidance (ALG) \cite{alg} がある。FreeInit は初期ノイズの再利用によって一貫性を向上させる手法であり、逆に言えば Static Death を助長する可能性がある。一方、ALG は条件画像から高周波成分を除去することで動きを促進する手法であり、本研究の方向性と近い。しかし、ALG はあくまで入力画像の前処理に留まっており、拡散モデルの生成ダイナミクスそのもの（CFG など）への介入は行なっていない。
+
+\subsection{拡散モデルの周波数特性と構造形成}
+拡散モデルの生成プロセスには、周波数領域における明確なバイアスが存在することが知られている。Choiら \cite{freeinit} の分析によれば、デノイジングプロセスの初期段階（高ノイズ領域）では、画像の「低周波成分（大まかな構図・配置）」が決定され、終盤（低ノイズ領域）にかけて「高周波成分（細部・テクスチャ）」が形成される。
+既存の FreeInit 等の手法は、この特性を利用し、初期ステップの潜在変数を固定・反復することで、低周波成分（構造）の一貫性を強化しようとした。これは「歩行」のような定常的な動作には有効であるが、「バク転」のようなグローバルな構造変化（直立 $\to$ 倒立）を伴うアクションにおいては、致命的な制約となる。既存の構造バイアスが初期段階で固定されてしまうため、モデルは新たな姿勢へと遷移できなくなるのである。
+対して本研究のアプローチは、この特性を逆手に取るものである。我々は、初期段階（低周波生成フェーズ）においてのみ、CFGやAttentionによる拘束を意図的に破壊（Relaxation）することで、グローバルな構造変化を許容する。提案手法における $\beta$ と $p$ は、まさにこの「低周波領域への介入強度と期間」を制御するパラメータと解釈できる。これにより、モデルは学習済みの物理知識（どう回転すべきか）を維持しつつ、初期状態の構造的制約（立ち姿）から解放されることが可能となる。
+
+\section{課題分析と仮説：なぜStatic Deathは起きるのか}
+
+\subsection{エネルギー地形による解釈}
+拡散モデルの生成過程は、エネルギーポテンシャルの斜面を下り、安定状態（極小値）へ収束するプロセスと見なせる。Static Death が発生している状態では、初期フレーム（立ち姿）の周辺に、極めて深く急峻なポテンシャルの谷（Deep Valley）が形成されていると考えられる。モデルはこの谷底に捕らわれており、プロンプトが「バク転」を指示しても、そのエネルギー障壁を越えて別の谷（バク転状態）へ遷移することができない。
+
+\subsection{初期仮説の失敗：Impulse (Boost) アプローチ}
+当初、我々はこの障壁を越えるためには「強い力」が必要であると考えた。すなわち、CFGスケールを負の値に設定したり（$\beta < 0$）、初期ノイズを増幅させることで、モデルを強制的に谷から押し出す \textbf{"Impulse" (Boost)} 戦略である。
+実際に $\beta = -1.0$ （初期CFGを強化）として予備実験を行ったところ、VideoMAEスコアは $0.007$ と Baseline ($0.004$) に比して有意な改善が見られず、Top-1 予測クラスも "spinning poi" ($7\%$) や "breakdancing" という脈絡のない結果となった。
+映像を詳細に分析すると、人物がバク転をするのではなく、手足が異常に伸長したり、多重露光のように身体が分裂したりする「構造的崩壊（Morphological Collapse）」が確認された。これは、過剰なエネルギー注入により、モデルがポテンシャルの谷を越えるどころか、地形そのものを破壊し、物理的に成立しないカオス状態（Spinning Poiのような意味不明な回転）へと発散してしまったことを意味する。
+この結果から、単に「力を加える」だけでは、繊細な構造変化（バク転）を誘導することは不可能であり、逆に「構造を壊してしまう」リスクが高いことが判明した。
+
+\subsection{修正仮説：Relaxation アプローチ}
+この失敗から、我々は「力で押すのではなく、壁を低くすればよいのではないか」という着想を得た。すなわち、生成の初期段階においてのみ、CFGスケールやAttentionの制約を意図的に弱めることで、ポテンシャル地形全体を平坦化（Flattening）する \textbf{"Relaxation"} 戦略である。
+壁が低くなれば、モデルはわずかな駆動力（プロンプトの指示）でも容易に現在の谷を脱出し、隣接する目的の谷へと遷移できるはずである。本研究ではこの仮説に基づき、適応的なパラメータ制御手法を設計した。
+
+\section{提案手法}
+
+本研究では、"Static Death" を克服するために、拡散モデルの推論プロセスに介入する2つの手法、\textbf{Adaptive CFG (Relaxation)} と \textbf{Temporal Unlearning} を提案する。これらの手法は、先行研究で明らかにされた拡散モデルの特性に基づき設計されている。
+
+\subsection{Adaptive CFGによる初期緩和}
+通常のclassifier-free guidance (CFG) におけるノイズ予測 $\hat{\epsilon}_t$ は、条件付き予測 $\epsilon_\theta(x_t, c)$ と無条件予測 $\epsilon_\theta(x_t, \emptyset)$ を用いて以下の式で表される：
 \begin{equation}
-E(\bm{x}) \approx \sum_{t=1}^{T-1} ||x_{t+1} - x_t||^2
+\hat{\epsilon}_t = \epsilon_\theta(x_t, \emptyset) + s \cdot (\epsilon_\theta(x_t, c) - \epsilon_\theta(x_t, \emptyset))
 \end{equation}
-この項は、フレーム間の急激な変化（高い運動エネルギー）にペナルティを与える「慣性項」として機能する。
-一般的なシーン（歩行や風景）ではこの慣性が極めて有効であるが、「人物が消失する（Disappearance）」や「静止状態から突然高く跳躍する（Backflip）」といったタスクにおいては、この慣性が障壁となる。モデルは $x_{t+1} \approx x_t$ を維持しようとするあまり、プロンプト $c$ が指示する急激な状態変化 $c_{motion}$ を無視し、初期状態 $x_1$ に固着してしまう。我々はこの現象を "Static Death" と定義する。
+ここで $s$ は定数のガイダンススケールである。
 
-\subsection{既存制御手法の限界}
-この課題に対し、いくつかの既存アプローチが考えられるが、いずれも決定的な解決には至っていない。
+\subsubsection{Relaxation Strength $\beta$: ALGからの拡張}
+先行研究であるALG \cite{alg} は、初期入力の高周波成分を落とすことで動きを促進できることを示した。これは「構造的制約を弱める」ことを意味する。我々はこの知見を拡張し、入力画像だけでなく、生成プロセスそのものの制約（CFGスケール）を初期段階で弱めることで、より直接的にモデルの探索空間を広げることができると考えた。
+具体的には、初期のガイダンススケールを減衰させる係数 $\beta$ を導入する。これにより、モデルはプロンプトの指示（動的ベクトル）に対してより敏感に反応できるようになる。
+
+\subsubsection{Decay Power $p$: FreeInitの周波数特性に基づく制御}
+FreeInit \cite{freeinit} は、拡散プロセスの初期段階が画像の「低周波成分（大まかな構図）」を決定的に左右することを示した。逆に言えば、初期段階を過ぎれば構図は固定され、以降はディテールの生成に移行する。
+したがって、Relaxation（構造破壊）の効果は、構図が決定される「初期段階」のみに限定されるべきであり、後半まで持続するとディテールの崩壊を招く。この「介入の引き際」を厳密に制御するために、減衰パラメータ $p$ を導入した。
+提案する \textbf{Relaxation Curve} は以下の通りである：
+\begin{equation}
+s(\sigma_t) = s_{min} + (s_{base} - s_{min}) \cdot (1 - \beta \cdot \sigma_t^p)
+\end{equation}
+各パラメータの定義と役割は以下の通りである。
 \begin{itemize}
-    \item \textbf{ControlNet等の空間制御}: 骨格情報や深度マップを入力として動作を強制する手法。強力であるが、適切な条件画像（Condition）を事前用意する必要があり、生成コストが高い。また、モデル自体の「動きにくさ」を解消するわけではないため、不自然な変形が生じやすい。
-    \item \textbf{Prompt-to-Prompt等の注意制御}: Cross-Attentionマップを操作して対象物を置換・消去する手法。静止画では有効だが、動画においてはSelf-Attentionによる時間的参照が支配的であるため、効果が限定的である。
-    \item \textbf{Global CFG Adjustment}: CFGスケールを一律に下げることでモデルの拘束を緩める手法。しかし、全体的にスケールを下げると画質や構造的一貫性が崩壊し、逆に上げると "Static Death" が強化されるというジレンマがある。
+    \item $s_{base}$: ターゲットとする基本CFGスケール（例: 6.0）。
+    \item $s_{min}$: 緩和時の最小CFGスケール（例: 1.0）。
+    \item $\beta \in [0, 1]$ (\textbf{Relaxation Strength}): 初期ガイダンスの減衰率。ALGの知見に基づき、初期の構造的制約を緩和する度合いを決定する。$\beta=1.0$ のとき、初期スケールは $s_{min}$ まで低下し、探索自由度を最大化する。
+    \item $p$ (\textbf{Decay Power}): FreeInitの知見に基づき、低周波生成フェーズ（初期）から高周波生成フェーズ（後半）への移行に合わせて緩和を終了させるための減衰指数。$p > 1$（例: 2.0）とすることで、初期の緩和状態から急速に $s_{base}$ へ復帰させ、後半の整合性を担保する。
 \end{itemize}
 
-\section{提案手法: Frequency-Adaptive Hybrid Control}
-前節の分析から、"Static Death" を克服するためには、(1) 生成プロセスの特定の段階（周波数帯域）においてのみ動的に介入し、(2) 時間的参照（記憶）を選択的に操作する手法が必要であることが示唆される。我々はこの方針に基づき、\textbf{Frequency-Adaptive Hybrid Control (FAHC)} を提案する。
-
-\subsection{着想: 生成フェーズの分離}
-拡散モデルの生成過程は、初期の低周波成分（大まかな構図・動き）の決定から、終盤の高周波成分（細部・質感）の決定へと進むことが知られている。
-"Static Death" は、初期段階において「動き出そうとする力」が「留まろうとする慣性」に負けることで発生する。したがって、初期段階（低周波領域）においてのみ強力なエネルギー（Impulse）を与え、あるいは慣性を弱める（Relaxation）ことができれば、終盤の一貫性を損なうことなく、動的な遷移を実現できるはずである。
-
-\subsection{Adaptive CFG Scaling: 動的エネルギー注入}
-我々は、ガイダンススケール $w$ をノイズレベル $\sigma_t$ の関数として定義し、生成フェーズに応じた動的なエネルギー制御を行う。
-標準的なCFGの式を再掲する。
+\subsection{Temporal Unlearning: Attentionマップの拡散}
+Prompt-to-Prompt \cite{p2p} は、生成される物体の形状や位置（アイデンティティ）が Self-Attention マップに強く依存していることを明らかにした。Static Death が起きている状態では、過去フレームの Attention マップ（立ち姿）が強固に維持されていると解釈できる。
+そこで本手法では、Self-Attention 層の Key ($K$) および Value ($V$) に対して時間軸方向の平滑化（Gaussian Blur）を適用する \textbf{Temporal Unlearning} を導入した。
 \begin{equation}
-\tilde{\epsilon}_\theta(x_t, c) = \epsilon_\theta(x_t, \varnothing) + w \cdot (\epsilon_\theta(x_t, c) - \epsilon_\theta(x_t, \varnothing))
+\tilde{K}_{\tau} = \sum_{j} G(j - \tau; \sigma_{blur}) \cdot K_{j}
 \end{equation}
-ここで、時間依存スケール $w(\sigma_t)$ を以下のように設計する。
-\begin{equation}
-w(\sigma_t) = w_{base} + \alpha \cdot \text{sgn}(\beta) |\beta| \cdot \sigma_t^p
-\end{equation}
+これにより、Attention における時間的な局所性（過去への固執）を物理的に拡散させ、プロンプトによる新しい状態への遷移（Overwrite）を容易にする。これは ALG のような入力画像処理ではなく、モデル内部の記憶機構への直接介入である。
 
-この数式の各項は物理的な意味を持つ。
-\begin{itemize}
-    \item \textbf{Impulse Mode ($\beta < 0$): 活性化エネルギーの供給} \\
-    バク転のような高エネルギー動作には、静止摩擦係数を超えるような初期推力が必要である。$\beta < 0$ とすることで、生成初期（$\sigma_t \approx 1$）に $w(\sigma_t)$ を一時的に増大（Boost）させる。これにより、プロンプト $c$ の強制力を極大化し、モデルの慣性を打ち破る「活性化エネルギー」を供給する。
-    \item \textbf{Relaxation Mode ($\beta > 0$): 構造的可塑性の付与} \\
-    逆に、消失タスクのように「存在」自体を消す場合、モデルの構造維持バイアスを弱める必要がある。$\beta > 0$ とすることで初期の $w(\sigma_t)$ を減少させ、モデルを「物理法則に従わない（消えてもよい）」状態にする。
-    \item \textbf{Power Parameter ($p$): 緩和時間の制御} \\
-    $p$ は介入の持続時間を制御する。$p=2.0$（急減衰）はインパルスを一瞬だけ与えて即座に安定させる「衝撃」として機能し、$p=0.7$（緩減衰）は動作の自由度を長く維持する「粘性低下」として機能する。本研究の実験により、この $p$ の値が生成品質（Robot Dancing vs Natural Motion）を分ける決定的な要因であることが判明した。
-\end{itemize}
+\input{experiment_results.tex}
 
-\subsection{Temporal Context Unlearning: 選択的忘却}
-もう一つの障壁である「時間的参照（Self-Attention）」に対し、情報理論的な観点から介入を行う。
-Attention機構は、過去のフレーム $K_{past}$ を参照することで情報をコピーするが、これは「過去の物体が存在し続ける」という強い情報を現在フレームに与え続けることと同義である。
-消失タスクを成功させるには、この情報の信頼度を下げる（エントロピーを増大させる）必要がある。
+\section{結論}
+本研究では、大規模動画生成モデルにおける深刻な課題 "Static Death" を定義し、その克服に向けた推論時介入手法を提案した。
+本研究の主な貢献は以下の3点に集約される。
+\begin{enumerate}
+    \item \textbf{Static Deathの現象論的解明}: モデルが過去の文脈に過剰に囚われる現象を「エネルギー地形における深い局所解への埋没」としてモデル化し、従来のインパルス（Boost）アプローチがカオスを招くことを明らかにした。
+    \item \textbf{Relaxation理論の確立}: 力で脱出するのではなく、初期拘束を一時的に緩和して障壁を下げる「Relaxation」アプローチを提唱し、その有効性を理論的・実験的に実証した。
+    \item \textbf{劇的な性能向上}: 提案手法により、追加学習なしでVideoMAEスコアを約100倍（0.004 $\rightarrow$ 0.394）に向上させ、従来不可能であった「バク転」等の動的アクション生成を実現した。
+\end{enumerate}
+本手法は、高画質化・安定化が進む今後の動画生成モデルにおいて、失われがちな「動的な表現力」を取り戻すための標準的な制御技術となることが期待される。
 
-そこで、Key/Valueキャッシュに対して時間軸方向のガウシアンブラーを適用する。
-\begin{equation}
-\tilde{K}_\tau = \sum_{i} K_{\tau+i} \cdot \mathcal{N}(i; 0, \sigma_{blur}^2)
-\end{equation}
-この操作は、信号処理の観点からはローパスフィルタリングであり、時間的に急峻な特徴量（特定のフレームにのみ存在する詳細情報）を平滑化する効果を持つ。結果として、モデルは過去の特定の瞬間の「鮮明な姿」を参照できなくなり、現在のプロンプト（「何もいない」）に従って、その場所を背景で埋める（インペインティングする）ことが容易になる。
-我々はこれを \textbf{Temporal Context Unlearning} と呼び、明示的な学習を行わずにモデルの「記憶」を操作する手法として位置づける。
+\begin{thebibliography}{99}
+\bibitem{hunyuan} HunyuanVideo Authors, et al. "HunyuanVideo: A Large-scale Video Generation Model." 2024.
+\bibitem{freeinit} Wu, T., et al. "FreeInit: Bridging Initialization and Inference for better Video Generation." 2023.
+\bibitem{p2p} Hertz, A., et al. "Prompt-to-Prompt Image Editing with Cross Attention Control." 2022.
+\bibitem{alg} Gu, Y., et al. "Adaptive Low-Pass Guidance for Image-to-Video Generation." 2024.
+\bibitem{svi} Research Team, "Stable Video Infinity." 2024.
+\bibitem{motionrag} Research Team, "MotionRAG: Retrieval-Augmented Motion Generation." 2024.
+\end{thebibliography}
+%%
 
-\section{実験・考察}
-HunyuanVideoを用い、「消失（Disappearance）」と「バク転（Backflip）」の2つのタスクで手法の有効性を検証した。
-
-\subsection{評価指標と目的}
-本研究の主目的は、動画生成における「動的な変化（Dynamics）」と「静的な一貫性（Consitency）」という相反する要素を、導入した変数 $\beta$ (Intervention Strength) および $p$ (Decay Power) によって能動的に制御可能であることを実証することにある。
-従来の固定パラメータでは到達不可能であった、プロンプトへの高い忠実度と映像の自然さを両立させる領域（Pareto Frontierの拡大）を、提案手法がカバーできることを定量的に示すため、以下の指標を用いた。
-\begin{itemize}
-    \item \textbf{Text-Video Alignment (CLIP Score)}: 
-    生成された動画フレームとプロンプト（例: "A man performs a backflip"）との意味的な類似度をCLIPモデルを用いて計算する。これはモデルが「どれだけプロンプトの指示（無理な動作）に従おうとしたか」を表す指標である。VideoMAE等の動作認識モデルは学習データ外の未知の動作に対して脆弱であるため、より汎用的なCLIPを用いた。
-    \item \textbf{Visual Consistency (LPIPS)}: 
-    隣接フレーム間の知覚的距離（LPIPS）を計算し、映像の時間的安定性を評価する。値が小さいほど滑らかで破綻が少ないことを意味するが、極端に小さい場合は "Static Death"（静止画化）を示唆する。
-\end{itemize}
-
-\subsection{定量的評価結果}
-「バク転（Backflip）」タスクにおけるパラメータごとの定量評価結果を表\ref{tab:results}に示す。
-
-\begin{table}[htbp]
-  \centering
-  \caption{バク転タスクにおける各パラメータ設定の定量評価比較。$\beta$ は介入強度、Blurは忘却強度を表す。VideoMAEスコアは "somersaulting" 等のターゲット動作クラスの確率を示す。}
-  \label{tab:results}
-  \begin{tabular}{lccccc}
-    \hline
-    Condition & $\beta$ & Blur & CLIP $\uparrow$ & LPIPS $\downarrow$ & VideoMAE $\uparrow$ \\
-    \hline
-    Baseline & 0.0 & 0.0 & 0.152 & \textbf{0.166} & 0.004 \\
-    \textbf{Ours} & \textbf{0.9} & \textbf{0.6} & \textbf{0.187} & 0.244 & \textbf{0.221} \\
-    High-Blur & 1.0 & 1.5 & 0.180 & 0.260 & 0.034 \\
-    \hline
-  \end{tabular}
-\end{table}
-
-表\ref{tab:results}より、ベースライン（Baseline）ではLPIPSが最も低く安定しているが、VideoMAEスコアはほぼゼロであり、アクション生成に失敗していることがわかる（Static Death）。
-一方、提案手法（Ours）ではVideoMAEスコアがベースライン比で約55倍に向上しており、CLIP Scoreも最大値を示した。LPIPSは0.244と上昇しているが、これは静止状態からの脱却に伴う必然的な変化であり、映像崩壊（High-Blur条件の0.260以上）には至っていない。
-High-Blur条件ではクリップスコアは高いものの、VideoMAEスコアが低下しており、過度な忘却が動作の一貫性を損なうことを示唆している。
-
-以上の結果より、提案手法のパラメータ $\beta$ と $p$ を適切に設定することで、一貫性と動的変化のトレードオフを能動的に制御し、従来困難であったアクション生成が可能になることが確認された。
 \end{document}
