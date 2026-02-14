@@ -1,0 +1,74 @@
+\documentclass[nocopyright]{jsaiac}
+\usepackage[mx]{graphicx}
+\usepackage{url}
+\usepackage{amsmath}
+\usepackage{bm}
+
+\title{大規模動画生成モデルにおける適応的ガイダンスと\\時間的忘却を用いた動的状態遷移の制御}
+
+\author{
+\name{著者名}{所属}
+}
+
+\begin{abstract}
+HunyuanVideoをはじめとする近年の大規模動画生成モデルは、極めて高い時間的一貫性を実現している。しかし、この強力な一貫性は、物体が消失する「Disappearance」タスクや、物理法則に逆らう「Backflip（バク転）」のような急激な状態変化において、初期状態を過剰に維持しようとする "Static Death"（静的死）と呼ばれる現象を引き起こす。本研究では、追加学習を必要としない推論時介入手法として、ノイズレベルに応じてガイダンススケールを動的に制御する \textbf{Adaptive CFG} と、注意機構の履歴を意図的に曖昧にする \textbf{Temporal Context Unlearning} を提案する。実験の結果、ガイダンスの減衰速度（Power）が生成される動きの可塑性に決定的な影響を与えることを明らかにし、パラメータの最適化によって「硬直（Robot Dancing）」と「崩壊」の間のスイートスポットを見出し、動的なアクション生成に成功した。
+\end{abstract}
+
+\begin{document}
+\maketitle
+
+\section{はじめに}
+動画生成技術に急速な進歩が見られる中、HunyuanVideo \cite{hunyuan} などの最新モデルは、長時間の動画においても破綻のない一貫性（Temporal Consistency）を維持できるようになった。これは一般的な風景動画や歩行動画においては望ましい特性であるが、一方でモデルの表現力を制限する要因ともなっている。具体的には、プロンプトで「人物が消える」「空高くジャンプして回転する」といった急激な状態変化を指示しても、モデルは直前のフレームからの連続性を優先し、指示を無視して「単に歩き続ける」あるいは「立ち尽くす」といった挙動を示す傾向がある。我々はこの現象をモデルの **"Static Death"（静的死）** と呼ぶ。
+
+本研究の目的は、モデルの重みを変更することなく（Training-free）、推論時のパラメータ制御のみによってこの一貫性バイアスを打破し、動的な状態遷移を実現することである。
+
+\section{提案手法}
+我々は、"Static Death" を回避しつつ映像品質を維持するために、以下の2つの手法を組み合わせた **FAHC (Frequency-Adaptive Hybrid Control)** を提案する。
+
+\subsection{Adaptive CFG Scaling}
+Classifier-Free Guidance (CFG) は、プロンプトへの忠実度を制御する重要なパラメータである。通常は固定値が用いられるが、我々は拡散過程の各ステップにおけるノイズレベル $\sigma$ に応じてスケール $s(\sigma)$ を動的に変化させる。
+
+\begin{equation}
+s(\sigma) = s_{min} + (s_{base} - s_{min}) \cdot (1 - \beta \cdot \sigma^p)
+\end{equation}
+
+ここで、$\beta$ は介入の強度、 $p$ (Power) は減衰の鋭さを制御するパラメータである。
+\begin{itemize}
+    \item \textbf{Negative Beta (Boost)}: 生成初期（$\sigma \approx 1$）に $s(\sigma)$ を増大させ、状態遷移のきっかけ（Impulse）を与える。
+    \item \textbf{Positive Beta (Decay)}: 生成初期に $s(\sigma)$ を減少させ、物理的な事前分布（Prior）に従わせる。
+    \item \textbf{Power ($p$)}: 本研究で着目した重要パラメータである。$p$ が大きい（例: 2.0）とCFGは急速にベース値に戻り、$p$ が小さい（例: 0.7）と介入効果が長く持続する。
+\end{itemize}
+
+\subsection{Temporal Context Unlearning}
+Self-Attention層におけるKey/Valueキャッシュに対し、時間方向のガウシアンブラーを適用する。これにより、モデルが過去のフレーム（例: 立っている人物）に過剰に注目することを防ぎ、現在のフレームでの状態変化（例: 空間への跳躍）を許容させる「忘却」メカニズムとして機能する。
+
+\section{実験}
+\subsection{実験設定}
+モデルには HunyuanVideo を使用し、以下の2つのタスクで評価を行った。
+\begin{enumerate}
+    \item \textbf{Disappearance}: 人物が歩き去り、完全に消滅する。
+    \item \textbf{Backflip}: 人物がバク転を行う。物理法則に逆らう初期動作が必要。
+\end{enumerate}
+評価には、動作の認識精度を測る \textbf{VideoMAE Action Score} と、映像の崩壊度を測る \textbf{LPIPS Consistency Score} を用いた。
+
+\subsection{結果と考察}
+\subsubsection{Powerパラメータの影響}
+バク転タスクにおいて、Adaptive CFGの減衰率 $p$ の影響を比較した。
+\begin{itemize}
+    \item \textbf{Case 1: $p=2.0$ (Rapid Recovery)}:
+    初期に動き出そうとするものの、すぐにCFGが高まりプロンプトの拘束力が戻るため、空中で動作が停止する「Robot Dancing」現象が発生した（Action Score $\approx 0$）。
+    \item \textbf{Case 2: $p=0.7$ (Balanced Decay)}:
+    介入効果が適度に持続し、物理法則に従った滑らかな回転動作が生成された。これにより、一貫性と可塑性のバランス（スイートスポット）が存在することが示唆された。
+\end{itemize}
+
+\subsubsection{消失タスクにおける忘却の効果}
+ブラー強度（Sigma）を 1.3 程度に設定することで、人物の痕跡（Ghosting）を残さずに自然な消失が可能となった。これは、過去の記憶を「適度に忘れる」ことが状態遷移に必須であることを示している。
+
+\section{結論}
+本研究では、Adaptive CFGとTemporal Blurを用いた推論時制御により、大規模動画生成モデルの "Static Death" 問題に対処できることを示した。特に、Adaptive CFGの減衰カーブ（Power）が動作の質に決定的な影響を与えることを発見し、適切なパラメータ設定により、一貫性を保ちながら動的なアクション生成が可能であることを実証した。
+
+\begin{thebibliography}{9}
+\bibitem{hunyuan} HunyuanVideo Authors, et al. "HunyuanVideo: A Large-scale Video Generation Model." 2024.
+\end{thebibliography}
+
+\end{document}

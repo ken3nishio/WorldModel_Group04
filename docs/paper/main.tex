@@ -1,0 +1,109 @@
+\documentclass[twocolumn]{ujarticle}
+\usepackage{jsaiac}
+\usepackage[dvipdfmx]{graphicx}
+\usepackage{url}
+\usepackage{amsmath}
+\usepackage{bm}
+% \usepackage{algorithm}
+% \usepackage{algorithmic}
+
+\title{大規模動画生成モデルにおける適応的ガイダンスと\\
+時間的忘却を用いた動的状態遷移の制御}
+
+\author{
+著者名 \\ 所属
+}
+
+\begin{abstract}
+（前略）
+\end{abstract}
+
+\begin{document}
+\maketitle
+
+\section{はじめに}
+（前略）
+
+\section{関連研究}
+（前略）
+
+\section{問題設定と課題分析}
+本節では、提案手法の導入に先立ち、最新の動画生成モデルが抱える構造的な課題である "Static Death"（静的死）を定義し、既存のアプローチではなぜ解決困難であるかを分析する。
+
+\subsection{動画生成における「静的死 (Static Death)」}
+拡散モデル（Diffusion Models）を用いた動画生成において、時間的一貫性（Temporal Consistency）は品質の根幹をなす要素である。HunyuanVideo等のモデルは、膨大な自然動画データセットから学習することで、隣接フレーム間の変化を滑らかに保つ強力な事前分布（Prior）を獲得している。
+これを数理的に解釈すると、生成される動画の状態ベクトル系列 $\bm{x} = \{x_1, \dots, x_T\}$ に対し、以下のようなエネルギー関数 $E(\bm{x})$ を最小化するようなバイアスがかかっていると言える。
+\begin{equation}
+E(\bm{x}) \approx \sum_{t=1}^{T-1} ||x_{t+1} - x_t||^2
+\end{equation}
+この項は、フレーム間の急激な変化（高い運動エネルギー）にペナルティを与える「慣性項」として機能する。
+一般的なシーン（歩行や風景）ではこの慣性が極めて有効であるが、「人物が消失する（Disappearance）」や「静止状態から突然高く跳躍する（Backflip）」といったタスクにおいては、この慣性が障壁となる。モデルは $x_{t+1} \approx x_t$ を維持しようとするあまり、プロンプト $c$ が指示する急激な状態変化 $c_{motion}$ を無視し、初期状態 $x_1$ に固着してしまう。我々はこの現象を "Static Death" と定義する。
+
+\subsection{既存制御手法の限界}
+この課題に対し、いくつかの既存アプローチが考えられるが、いずれも決定的な解決には至っていない。
+\begin{itemize}
+    \item \textbf{ControlNet等の空間制御}: 骨格情報や深度マップを入力として動作を強制する手法。強力であるが、適切な条件画像（Condition）を事前用意する必要があり、生成コストが高い。また、モデル自体の「動きにくさ」を解消するわけではないため、不自然な変形が生じやすい。
+    \item \textbf{Prompt-to-Prompt等の注意制御}: Cross-Attentionマップを操作して対象物を置換・消去する手法。静止画では有効だが、動画においてはSelf-Attentionによる時間的参照が支配的であるため、効果が限定的である。
+    \item \textbf{Global CFG Adjustment}: CFGスケールを一律に下げることでモデルの拘束を緩める手法。しかし、全体的にスケールを下げると画質や構造的一貫性が崩壊し、逆に上げると "Static Death" が強化されるというジレンマがある。
+\end{itemize}
+
+\section{提案手法: Frequency-Adaptive Hybrid Control}
+前節の分析から、"Static Death" を克服するためには、(1) 生成プロセスの特定の段階（周波数帯域）においてのみ動的に介入し、(2) 時間的参照（記憶）を選択的に操作する手法が必要であることが示唆される。我々はこの方針に基づき、\textbf{Frequency-Adaptive Hybrid Control (FAHC)} を提案する。
+
+\subsection{着想: 生成フェーズの分離}
+拡散モデルの生成過程は、初期の低周波成分（大まかな構図・動き）の決定から、終盤の高周波成分（細部・質感）の決定へと進むことが知られている。
+"Static Death" は、初期段階において「動き出そうとする力」が「留まろうとする慣性」に負けることで発生する。したがって、初期段階（低周波領域）においてのみ強力なエネルギー（Impulse）を与え、あるいは慣性を弱める（Relaxation）ことができれば、終盤の一貫性を損なうことなく、動的な遷移を実現できるはずである。
+
+\subsection{Adaptive CFG Scaling: 動的エネルギー注入}
+我々は、ガイダンススケール $w$ をノイズレベル $\sigma_t$ の関数として定義し、生成フェーズに応じた動的なエネルギー制御を行う。
+標準的なCFGの式を再掲する。
+\begin{equation}
+\tilde{\epsilon}_\theta(x_t, c) = \epsilon_\theta(x_t, \varnothing) + w \cdot (\epsilon_\theta(x_t, c) - \epsilon_\theta(x_t, \varnothing))
+\end{equation}
+ここで、時間依存スケール $w(\sigma_t)$ を以下のように設計する。
+\begin{equation}
+w(\sigma_t) = w_{base} + \alpha \cdot \text{sgn}(\beta) |\beta| \cdot \sigma_t^p
+\end{equation}
+
+この数式の各項は物理的な意味を持つ。
+\begin{itemize}
+    \item \textbf{Impulse Mode ($\beta < 0$): 活性化エネルギーの供給} \\
+    バク転のような高エネルギー動作には、静止摩擦係数を超えるような初期推力が必要である。$\beta < 0$ とすることで、生成初期（$\sigma_t \approx 1$）に $w(\sigma_t)$ を一時的に増大（Boost）させる。これにより、プロンプト $c$ の強制力を極大化し、モデルの慣性を打ち破る「活性化エネルギー」を供給する。
+    \item \textbf{Relaxation Mode ($\beta > 0$): 構造的可塑性の付与} \\
+    逆に、消失タスクのように「存在」自体を消す場合、モデルの構造維持バイアスを弱める必要がある。$\beta > 0$ とすることで初期の $w(\sigma_t)$ を減少させ、モデルを「物理法則に従わない（消えてもよい）」状態にする。
+    \item \textbf{Power Parameter ($p$): 緩和時間の制御} \\
+    $p$ は介入の持続時間を制御する。$p=2.0$（急減衰）はインパルスを一瞬だけ与えて即座に安定させる「衝撃」として機能し、$p=0.7$（緩減衰）は動作の自由度を長く維持する「粘性低下」として機能する。本研究の実験により、この $p$ の値が生成品質（Robot Dancing vs Natural Motion）を分ける決定的な要因であることが判明した。
+\end{itemize}
+
+\subsection{Temporal Context Unlearning: 選択的忘却}
+もう一つの障壁である「時間的参照（Self-Attention）」に対し、情報理論的な観点から介入を行う。
+Attention機構は、過去のフレーム $K_{past}$ を参照することで情報をコピーするが、これは「過去の物体が存在し続ける」という強い情報を現在フレームに与え続けることと同義である。
+消失タスクを成功させるには、この情報の信頼度を下げる（エントロピーを増大させる）必要がある。
+
+そこで、Key/Valueキャッシュに対して時間軸方向のガウシアンブラーを適用する。
+\begin{equation}
+\tilde{K}_\tau = \sum_{i} K_{\tau+i} \cdot \mathcal{N}(i; 0, \sigma_{blur}^2)
+\end{equation}
+この操作は、信号処理の観点からはローパスフィルタリングであり、時間的に急峻な特徴量（特定のフレームにのみ存在する詳細情報）を平滑化する効果を持つ。結果として、モデルは過去の特定の瞬間の「鮮明な姿」を参照できなくなり、現在のプロンプト（「何もいない」）に従って、その場所を背景で埋める（インペインティングする）ことが容易になる。
+我々はこれを \textbf{Temporal Context Unlearning} と呼び、明示的な学習を行わずにモデルの「記憶」を操作する手法として位置づける。
+
+\section{実験・考察}
+HunyuanVideoを用い、「消失（Disappearance）」と「バク転（Backflip）」の2つのタスクで手法の有効性を検証した。
+
+\subsection{評価指標と目的}
+本研究の主目的は、動画生成における「動的な変化（Dynamics）」と「静的な一貫性（Consitency）」という相反する要素を、導入した変数 $\beta$ (Intervention Strength) および $p$ (Decay Power) によって能動的に制御可能であることを実証することにある。
+従来の固定パラメータでは到達不可能であった、プロンプトへの高い忠実度と映像の自然さを両立させる領域（Pareto Frontierの拡大）を、提案手法がカバーできることを定量的に示すため、以下の指標を用いた。
+\begin{itemize}
+    \item \textbf{Text-Video Alignment (CLIP Score)}: 
+    生成された動画フレームとプロンプト（例: "A man performs a backflip"）との意味的な類似度をCLIPモデルを用いて計算する。これはモデルが「どれだけプロンプトの指示（無理な動作）に従おうとしたか」を表す指標である。VideoMAE等の動作認識モデルは学習データ外の未知の動作に対して脆弱であるため、より汎用的なCLIPを用いた。
+    \item \textbf{Visual Consistency (LPIPS)}: 
+    隣接フレーム間の知覚的距離（LPIPS）を計算し、映像の時間的安定性を評価する。値が小さいほど滑らかで破綻が少ないことを意味するが、極端に小さい場合は "Static Death"（静止画化）を示唆する。
+\end{itemize}
+
+\subsection{定量的評価結果}
+予備実験において、Adaptive CFGの減衰パラメータ $p$ (Power) を変化させた際の結果を以下に示す。
+\begin{itemize}
+    \item \textbf{$p=2.0$ (High Stiffness)}: LPIPSは極めて低い（安定）が、CLIP Scoreも低迷した。これはモデルが動作を拒否し、静的な状態（Robot Dancing）に留まったことを示す。
+    \item \textbf{$p=0.7$ (Balanced)}: LPIPSはわずかに上昇したが、CLIP Scoreが大幅に向上した。これは、物理的な整合性をある程度犠牲にしつつ、プロンプトのアクション指示を受け入れたことを示唆しており、我々が目指す「動的生成」の成功例である。
+\end{itemize}
+\end{document}
