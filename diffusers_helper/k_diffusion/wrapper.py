@@ -16,7 +16,7 @@ def rescale_noise_cfg(noise_cfg, noise_pred_text, guidance_rescale=1.0):
     return noise_cfg
 
 
-def adaptive_cfg_scale(sigma, cfg_base, cfg_min=1.0, beta=0.7, t_scale=1000.0):
+def adaptive_cfg_scale(sigma, cfg_base, cfg_min=1.0, beta=0.7, power=0.7, t_scale=1000.0):
     """
     デノイジングタイムステップに応じてCFGスケールを適応的に変化させる。
     
@@ -29,25 +29,20 @@ def adaptive_cfg_scale(sigma, cfg_base, cfg_min=1.0, beta=0.7, t_scale=1000.0):
     Returns:
         調整されたCFGスケール
     
-    数式: cfg(σ) = cfg_min + (cfg_base - cfg_min) * (1 - β * σ)
+    数式: cfg(σ) = cfg_min + (cfg_base - cfg_min) * (1 - β * σ^p)
     """
     # sigmaが高い = 初期段階
     sigma_clamped = torch.clamp(sigma, 0.0, 1.0)
     
     if beta >= 0:
-        # Positive Beta: Start Low -> End High (Decay)
-        # 修正版: ユーザーフィードバック「0.7とかの方がいいかも」。
-        # Power=2.0 (制限強) -> Robot Dancing (動き出し失敗)
-        # Power=0.5 (制限弱) -> 動きすぎ (崩壊)
-        # Power=0.7 (バランス型) を採用。Beta=1.0と組み合わせるのが推奨。
-        sigma_curve = sigma_clamped ** 0.7
+        # Positive Beta: Start Low -> End High (Decay/Relaxation)
+        sigma_curve = sigma_clamped ** power
         cfg_adjusted = cfg_min + (cfg_base - cfg_min) * (1.0 - beta * sigma_curve)
     else:
         # Negative Beta: Start High -> End Low (Boost)
-        # ユーザーが保持した強化版（Quick Decay Boost）
-        # 初期インパルスを最大化し、着地時の崩壊を防ぐ。
         boost = abs(beta) * 3.0
-        sigma_curve = sigma_clamped ** 2.0
+        # Boost時もPowerを適用できるようにする（デフォルト挙動維持のため条件分岐しても良いが、今回は統一）
+        sigma_curve = sigma_clamped ** power 
         
         cfg_adjusted = cfg_base + (cfg_base * boost * sigma_curve)
         
@@ -74,6 +69,7 @@ def fm_wrapper(transformer, t_scale=1000.0):
                 cfg_base=cfg_scale_base,
                 cfg_min=adaptive_cfg_config.get('cfg_min', 1.0),
                 beta=adaptive_cfg_config.get('beta', 0.7),
+                power=adaptive_cfg_config.get('power', 0.7),
             )
             # Debug output to verify behavior (print only for step 0 and every 5 steps)
             # if sigma > 0.9 or (int(sigma * 100) % 20 == 0):

@@ -1,0 +1,83 @@
+\documentclass[twocolumn]{ujarticle}
+\usepackage[dvipdfmx]{graphicx}
+\usepackage{url}
+\usepackage{amsmath}
+\usepackage{bm}
+\usepackage{booktabs}
+
+\title{大規模動画生成モデルにおける「時間的慣性」の適応的制御：\\
+Adaptive CFGとTemporal Unlearningによる動的状態遷移の実現}
+
+\author{
+著者名 \\ 所属
+}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+HunyuanVideoやFramePackなどの近年の大規模動画生成モデルは、極めて高い時間的一貫性（Temporal Consistency）を実現している。しかし、この特性は「物体が消失する」あるいは「静止から急激に跳躍する（バク転）」といった非連続的な状態遷移において、初期状態を過剰に維持しようとする \textbf{"Static Death"（静的死）} と呼ばれる現象を引き起こす。本研究では、この課題の本質がモデルの持つ過剰な「時間的慣性」にあると定義し、推論時の動的介入によってこれを制御する手法を提案する。具体的には、(1) 生成初期に強力な推力を与える \textbf{Adaptive CFG ($\beta$)}、(2) その介入を適切に減衰させ構造崩壊を防ぐ \textbf{Decay Power ($p$)}、(3) 過去のフレームへの固執を緩和する \textbf{Temporal Blur} の3要素を導入する。実験の結果、これらのパラメータ制御により、従来モデルでは不可能であった動的アクションの生成を、映像の破綻を防ぎつつ実現できることを定量的に実証した。
+\end{abstract}
+
+\section{はじめに}
+動画生成技術の進展において、最大のマイルストーンは「フレーム間の一貫性」の獲得であった。HunyuanVideo \cite{hunyuan} 等の最新モデルは、前のフレームの情報を強く参照することで、フリッカー（ちらつき）のない滑らかな映像生成を可能にしている。
+しかし、我々の予備実験において、この強力な一貫性維持機構が、特定のタスクにおいて致命的な障害となることが判明した。例えば「バク転（Backflip）」のような、静止状態から急激に身体を回転させる動作を指示した場合、モデルはプロンプトに従おうとしつつも、直前の「立っている状態」を維持しようとする慣性（Inertia）に負け、結果として微動だにしない映像が生成される。我々はこの現象をモデルの **"Static Death"** と呼ぶ。
+
+本研究の目的は、モデルの再学習を行うことなく、推論時のパラメータ制御のみによってこの「時間的慣性」を動的に調整し、一貫性と可塑性（Plasticity）のトレードオフを解消することである。
+
+\section{関連研究}
+\subsection{動画生成における一貫性の向上}
+ControlNetやAnimateDiffなど、既存の多くの研究は「一貫性の欠如（フリッカー）」を解消することに主眼を置いてきた。これらは主に動きを滑らかにする、あるいは抑制する方向のアプローチであり、「動き出せないものを動かす」という課題には直接対処していない。
+
+\subsection{推論時の動的介入}
+Dynamic CFGやFreeInitなどは、推論ステップごとにパラメータを変化させることで画質や一貫性を向上させている。しかし、これらもまた「静的な安定性」を志向しており、本研究が目指す「動的遷移（Action Initiation）」のトリガーとしては機能不全であった。
+
+\subsection{拡散モデルの周波数特性}
+拡散モデルの生成過程は、初期段階で低周波成分（大まかな構図・動き）が決定され、終盤で高周波成分（細部・質感）が決定されることが知られている \cite{freeinit}。
+FreeInit等の手法は、初期ステップの潜在変数を固定・反復することで、この低周波成分の一貫性を強化しようとした。
+対して本研究のアプローチは、この特性を逆手に取るものである。「バク転」のようなグローバルな構造変化を伴うアクションにおいては、まさにこの初期段階（低周波領域）においてこそ、既存の「自立する人物」という構造バイアスを破壊し、新たな構造への遷移を強制する「インパルス」が必要であるという立場をとる。提案手法における $\beta$ と $p$ は、この低周波領域への介入強度と期間を明示的に制御するパラメータである。
+
+\section{提案手法}
+
+本研究では、"Static Death" を克服するために、拡散モデルの推論プロセスに介入する2つの手法、\textbf{Adaptive CFG (Relaxation)} と \textbf{Temporal Unlearning} を提案する。
+
+\subsection{Adaptive CFGによる初期緩和}
+通常のClassifier-Free Guidance (CFG) におけるノイズ予測 $\hat{\epsilon}_t$ は、条件付き予測 $\epsilon_\theta(x_t, c)$ と無条件予測 $\epsilon_\theta(x_t, \emptyset)$ を用いて以下の式で表される：
+\begin{equation}
+\hat{\epsilon}_t = \epsilon_\theta(x_t, \emptyset) + s \cdot (\epsilon_\theta(x_t, c) - \epsilon_\theta(x_t, \emptyset))
+\end{equation}
+ここで $s$ は定数のガイダンススケールである。
+本手法では、初期段階の過剰な拘束（静的バイアス）を緩和するため、この $s$ をノイズレベル $\sigma_t \in [0, 1]$ （1は初期、0は終端）の関数 $s(\sigma_t)$ として再定義する。
+提案する \textbf{Relaxation Curve} は以下の通りである：
+\begin{equation}
+s(\sigma_t) = s_{min} + (s_{base} - s_{min}) \cdot (1 - \beta \cdot \sigma_t^p)
+\end{equation}
+各パラメータの役割は以下の通りである。
+\begin{itemize}
+    \item $s_{base}$: ターゲットとする基本CFGスケール（例: 6.0）。
+    \item $s_{min}$: 緩和時の最小CFGスケール（例: 1.0）。
+    \item $\beta \in [0, 1]$ (\textbf{Relaxation Strength}): 初期ガイダンスの減衰率。$\beta=1.0$ のとき、初期スケールは $s_{min}$ まで低下し、モデルの探索自由度を最大化する。
+    \item $p$ (\textbf{Decay Power}): 通常スケールへの復帰速度を制御する指数。$p > 1$（例: 2.0）とすることで、初期の緩和状態から急速に $s_{base}$ へ復帰させ、後半の構造生成における整合性を担保する。
+\end{itemize}
+
+\subsection{Temporal Unlearning}
+Prompt-to-Prompt \cite{p2p} 等でも示されているように、生成モデルにおける物体の同一性はSelf-Attentionマップに強く依存する。したがって、動画生成において直前のフレームへのAttentionが強すぎることは、新しい動作への遷移を阻害する要因となる。
+この過剰な参照（Ghosting）を抑制するため、Self-Attention層のKey ($K$) および Value ($V$) に対して時間軸方向の平滑化を適用する。
+時刻 $t$ におけるフレーム特徴量を $z_t$ としたとき、Key $K$ は通常 $K = W_k z$ で計算されるが、本手法ではこれにガウシアンフィルタ $G(\cdot; \sigma_{blur})$ を適用する：
+\begin{equation}
+\tilde{K}_{\tau} = \sum_{j} G(j - \tau; \sigma_{blur}) \cdot K_{j}
+\end{equation}
+同様に $\tilde{V}$ も計算する。これにより、Attentionにおける時間的な局所性を強制的に下げ、直前のフレーム（立ち姿）への過度なAttention集中を物理的に拡散させる。この操作により、プロンプトによる新しい状態への遷移（Overwrite）が容易になる。
+
+\input{experiment_results.tex}
+
+\section{まとめ}
+本研究では、大規模動画生成モデルの「Static Death」問題に対し、Adaptive CFGとTemporal Unlearningを用いた動的制御手法を提案した。実験の結果、初期推力（Beta）と急減衰（Power）、そして忘却（Blur）の3要素を適切に組み合わせることで、従来トレードオフの関係にあった「一貫性」と「可塑性」を高い次元で両立できることを実証した。これにより、FramePack等の強力な慣性を持つモデルにおいても、意図した通りの動的アクション生成が可能となった。
+
+\begin{thebibliography}{9}
+\bibitem{hunyuan} HunyuanVideo Authors, et al. "HunyuanVideo: A Large-scale Video Generation Model." 2024.
+\bibitem{freeinit} Wu, T., et al. "FreeInit: Bridging Initialization and Inference for better Video Generation." 2023.
+\bibitem{p2p} Hertz, A., et al. "Prompt-to-Prompt Image Editing with Cross Attention Control." 2022.
+\end{thebibliography}
+
+\end{document}

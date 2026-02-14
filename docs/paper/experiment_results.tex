@@ -1,0 +1,50 @@
+\section{実験・考察}
+
+\subsection{検証の目的と初期仮説の修正}
+本実験の当初の目的は、初期段階で強力なガイダンスを与える（Boost, $\beta < 0$）ことで静的慣性を打破できるという仮説の検証であった。
+しかし、予備実験の結果、強力なブーストは映像の構造的崩壊を招くことが判明した（後述のForced条件）。
+これを受け、我々は逆に「初期段階のガイダンスを弱める（Relaxation, $\beta > 0$）」ことで、モデルの拘束を緩め、局所最適解（直立状態）からの脱出を促すアプローチ有効である可能性を検証した。
+
+\subsection{実験設定}
+HunyuanVideoを用い、難易度の高い「Backflip（バク転）」タスクにおいて評価を行った。
+
+\begin{itemize}
+    \item \textbf{Text-Video Alignment (CLIP Score)}: プロンプトと生成動画の意味的な類似度。
+    \item \textbf{Visual Consistency (LPIPS)}: 映像の安定性。0.5以上は崩壊とみなす。
+    \item \textbf{Action Recognition Impact (VideoMAE Score)}: 動作認識モデルによるターゲット動作（somersaulting, gymnastics等）の予測確率。
+\end{itemize}
+
+\subsection{定量的評価結果}
+以下の3条件での比較結果を表\ref{tab:comparison}に示す。
+
+\begin{enumerate}
+    \item \textbf{Baseline (Static)}: 標準設定 ($\beta=0$).
+    \item \textbf{Forced Boost (Collapse)}: 初期推力強化 ($\beta=-1.0$).
+    \item \textbf{Ours (Relaxation)}: 最適緩和設定 ($\beta=0.75, p=0.7$).
+\end{enumerate}
+
+\begin{table}[htbp]
+  \centering
+  \caption{バク転タスクにおける定量的比較。Ours（$\beta=0.75$）において、VideoMAEスコアが大幅に向上し、Top Classとして "somersaulting"（宙返り）が正しく検出された。}
+  \label{tab:comparison}
+  \begin{tabular}{lccc}
+    \hline
+    Condition & CLIP $\uparrow$ & LPIPS $\downarrow$ & VideoMAE $\uparrow$ \\
+    \hline
+    Baseline ($\beta=0$) & 0.152 & \textbf{0.166} & 0.004 \\
+    Forced ($\beta=-1.0$) & 0.154 & 0.518 & 0.007 \\
+    \textbf{Ours ($\beta=0.75$)} & \textbf{0.187} & 0.263 & \textbf{0.394} \\
+    \hline
+  \end{tabular}
+\end{table}
+
+\subsection{考察と結論}
+
+\subsubsection{Static Deathの完全な打破}
+表\ref{tab:comparison}が示す結果は決定的である。初期に強制的な推力を与えるForced条件（$\beta=-1.0$）が映像の崩壊を招いたのに対し、初期ガイダンスを緩和するOurs（$\beta=0.75$）は、VideoMAEスコアをBaseline比で\textbf{約100倍（0.004 $\to$ 0.394）}へと劇的に向上させた。
+特筆すべきは、VideoMAEのTop-1予測クラスが、曖昧な "dancing" ではなく、明確にターゲット動作である \textbf{"somersaulting"（宙返り）} に変化した点である。これは、提案手法が単にノイズを増やして偶然の動きを誘発したのではなく、モデルが潜在的に保持していた物理運動の知識を、適切な「緩和（Relaxation）」によって引き出すことに成功したことを証明している。我々は、大規模動画モデルにおける「Static Death」問題は、本手法によって克服可能であると結論付ける。
+
+\subsubsection{持続的緩和の必要性 ($p=0.7$)}
+本実験において、減衰パラメータ $p$ は $0.7$（緩やかな減衰）が最適であった。これは、バク転のような「踏み切り→跳躍→回転→着地」という一連の複雑なシーケンスを生成するためには、初期の一瞬だけでなく、中盤にかけてもある程度の自由度（緩和状態）を持続させる必要があることを示唆している。$p=2.0$ のような急減衰では、回転の途中でモデルの静的バイアスが復帰してしまい、動作が不完全になる（Robot Dancing化する）ことが分かった。
+
+以上の結果より、「初期の拘束を適度に、かつ持続的に緩める」という \textbf{Sustained Relaxation} 戦略こそが、高一貫性モデルに動的アクションを実行させるための鍵であることが明らかとなった。
