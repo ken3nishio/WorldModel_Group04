@@ -27,7 +27,7 @@
 
 | Method | Beta ($\beta$) | Power ($p$) | VideoMAE Score | Qualitative Result |
 | :--- | :---: | :---: | :---: | :--- |
-| **Baseline (Pure)** | 0.0 | - | 0.073 | **Breakdancing** (Failed) |
+| **Baseline (Pure)** | 0.0 | 1.0 | 0.073 | **Breakdancing** (Failed) |
 | **Forced (Boost)** | -1.0 | 0.7 | 0.007 | **Spinning Poi** (Chaos) |
 | **Ours (Best)** | **0.75** | **0.7** | **0.394** | **Somersaulting** (Success) |
 
