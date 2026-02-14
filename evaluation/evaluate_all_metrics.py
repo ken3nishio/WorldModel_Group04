@@ -69,7 +69,7 @@ class Evaluator:
     def init_videomae(self):
         if self.videomae_model is None:
             print("Loading VideoMAE...")
-            model_name = "MCG-INT/videomae-base-finetuned-kinetics"
+            model_name = "MCG-NJU/videomae-base-finetuned-kinetics"
             self.videomae_image_processor = VideoMAEImageProcessor.from_pretrained(model_name)
             self.videomae_model = VideoMAEForVideoClassification.from_pretrained(model_name).to(self.device)
 
