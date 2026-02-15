@@ -36,7 +36,7 @@
 
 \begin{document}
 \begin{abstract}
-HunyuanVideoやFramePackなどの近年の大規模動画生成モデルは、極めて高い時間的一貫性（Temporal Consistency）を実現している。しかし、この特性は「物体が消失する」あるいは「静止から急激に跳躍する（バク転）」といった非連続的な状態遷移において、初期状態を過剰に維持しようとする \textbf{"Static Death"（静的死）} と呼ばれる現象を引き起こす。本研究では、この課題の本質がモデルの持つ過剰な「時間的慣性」にあると定義し、推論時の動的介入によってこれを制御する手法を提案する。具体的には、(1) 生成初期に過剰な拘束を緩和する \textbf{Adaptive CFG (Relaxation)}、(2) その介入を適切に減衰させ構造崩壊を防ぐ \textbf{Decay Power ($p$)}、(3) 過去のフレームへの固執を緩和する \textbf{Temporal Unlearning} の3要素を導入する。実験の結果、これらのパラメータ制御により、従来モデルでは不可能であった動的アクションの生成を、映像の破綻を防ぎつつ実現できることを定量的に実証した。
+HunyuanVideoやFramePackなどの近年の大規模動画生成モデルは、極めて高い時間的一貫性（Temporal Consistency）を実現している。しかし、この特性は「物体が消失する」あるいは「静止から急激に跳躍する（バク転）」といった非連続的な状態遷移において、初期状態を過剰に維持しようとする \textbf{"Static Death"（静的死）} と呼ばれる現象を引き起こす。本研究では、この課題の本質がモデルの持つ過剰な「時間的慣性」にあると定義し、推論時の動的介入によってこれを制御する手法を提案する。具体的には、(1) 生成初期に過剰な拘束を緩和する \textbf{Adaptive CFG (Relaxation)}、(2) その介入を適切に減衰させ構造崩壊を防ぐ \textbf{Decay Power ($p$)}、(3) 過去のフレームへの固執を緩和する \textbf{Temporal Blur (Gaussian Blur)} の3要素を導入する。実験の結果、これらのパラメータ制御により、従来モデルでは不可能であった動的アクションの生成を、映像の破綻を防ぎつつ実現できることを定量的に実証した。
 \end{abstract}
 
 \maketitle
@@ -106,9 +106,9 @@ s(\sigma_t) = s_{min} + (s_{base} - s_{min}) \cdot (1 - \beta \cdot \sigma_t^p)
     \item $p$ (\textbf{Decay Power}): FreeInitの知見に基づき、低周波生成フェーズ（初期）から高周波生成フェーズ（後半）への移行に合わせて緩和を終了させるための減衰指数。$p > 1$（例: 2.0）とすることで、初期の緩和状態から急速に $s_{base}$ へ復帰させ、後半の整合性を担保する。
 \end{itemize}
 
-\subsection{Temporal Unlearning: Attentionマップの拡散}
+\subsection{Temporal Blur: Attentionマップの拡散}
 Prompt-to-Prompt \cite{p2p} は、生成される物体の形状や位置（アイデンティティ）が Self-Attention マップに強く依存していることを明らかにした。Static Death が起きている状態では、過去フレームの Attention マップ（立ち姿）が強固に維持されていると解釈できる。
-そこで本手法では、Self-Attention 層の Key ($K$) および Value ($V$) に対して時間軸方向の平滑化（Gaussian Blur）を適用する \textbf{Temporal Unlearning} を導入した。
+そこで本手法では、Self-Attention 層の Key ($K$) および Value ($V$) に対して時間軸方向の平滑化（Gaussian Blur）を適用する \textbf{Temporal Blur} を導入した。
 \begin{equation}
 \tilde{K}_{\tau} = \sum_{j} G(j - \tau; \sigma_{blur}) \cdot K_{j}
 \end{equation}
