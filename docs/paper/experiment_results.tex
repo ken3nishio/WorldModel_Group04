@@ -14,11 +14,11 @@ HunyuanVideoを用い、難易度の高い「Backflip（バク転）」タスク
     \item \textbf{Action Recognition Impact (VideoMAE Score)}: 動作認識モデルによるターゲット動作（somersaulting, gymnastics等）の予測確率。
 \end{itemize}
 
-\subsection{定量的評価結果}
 \subsection{定量的評価}
 
 \subsubsection{Relaxation Strength ($\beta$) の影響}
 初期ガイダンスの緩和強度 $\beta$ を、負の値（Boost）から正の値（Relaxation）まで変化させた結果を表\ref{tab:beta_compare}に示す。
+なお、表中の ``Prob.'' は VideoMAE によって予測された Top Class の確信度（Probability）を表している。
 
 \begin{table}[h]
   \centering
@@ -74,12 +74,27 @@ $\beta < 0$ （Boost設定）において、予想に反して VideoMAE スコ�
 
 $p=2.1$（急減衰）の場合、初期の緩和効果が急速に失われるため VideoMAE スコアは最も低くなった。バク転のような滞空時間の長いアクション（約1秒〜2秒）を生成する場合、初期数ステップだけでなく、中盤にかけても緩和効果を持続させる（$p < 1.0$）ことが重要であることがわかる。
 
+\subsubsection{Temporal Blur ($\sigma_{blur}$) の役割と効果}
+本手法の第3の要素である Temporal Blur は、Self-Attention機構におけるKey/Valueマップに対して、時間軸方向のGaussian Blur ($\sigma_{blur}=0.6$) を適用するものである。
+この処理の意図は、モデルが保持する「過去の形状に対する過剰な記憶」を緩和することにある。
+通常、Static Deathに陥るモデルは、過去のフレーム（初期の立ち姿など）の特徴量を鮮明に記憶し続けており、これが新しい動作生成を阻害する「アンカー」として機能してしまう。
+Blurを導入することで、この時間的な特徴量マップが平滑化され、モデルは厳密な過去の形状を参照できなくなる。
+結果として、モデルの過去への執着（Inertia）が物理的に弱まり、Relaxationによって誘発された新しい動作（バク転）への遷移がスムーズに行われるようになる。
+また、この「ぼかし」効果は、フレーム間の急激な変化を抑制するローパスフィルタとしても機能するため、生成される動画の時間的連続性を保ち、フリッカー等のアーティファクトを防ぐ効果も確認された。
+
 \subsection{理論的考察：エネルギー地形モデル}
 なぜ初期の緩和（Relaxation）が必要なのか。これを「エネルギー地形（Energy Landscape）」の観点から考察する。
 拡散モデルの生成過程は、エネルギーポテンシャルの斜面を下るプロセスに例えられる。Static Deathが発生するモデルでは、初期画像（立ち姿）の周辺に深く急峻なポテンシャルの谷（Deep Valley）が形成されていると考えられる。
 通常のCFG（$\beta=0$）やBoost（$\beta<0$）は、この谷底へ向かう力を強めるため、モデルは谷から脱出できず、結果として動きのない映像が生成される。
 対して本手法のRelaxation（$\beta>0$）は、一時的にポテンシャルの勾配を平坦化（Flattening）する効果を持つ。これにより、モデルの状態は初期値の谷から容易に脱出し、隣接する別の谷（バク転している状態）へと遷移することが可能になる。
 ただし、平坦化させすぎると（$\beta=1.0$）、モデルはどの谷にも収束できず、意味のないノイズ（Chaos）へと発散してしまう。これが $\beta=1.0$ でスコアが悪化した理由である。適度な $\beta=0.75$ だけが、初期の谷からの脱出と、目的の谷への収束を両立させることができるのである。
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.95\linewidth]{figures/energy_landscape.png}
+  \caption{エネルギー地形（Energy Landscape）の比較。(a) \textbf{Baseline (Static Death)}: モデルは初期状態に対応する深い極小解に捕われている。(b) \textbf{Boost (Forced)}: 過剰な力を加えることで地形がカオス化し、構造崩壊を招く。(c) \textbf{Relaxation (Ours)}: ポテンシャルの谷を平坦化することで、モデルはターゲットとなる動作状態へスムーズに遷移できる。}
+  \label{fig:energy_landscape}
+\end{figure}
 
 \section{議論}
 
